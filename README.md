@@ -20,7 +20,7 @@ In my opinion, the best part about this is that it shows what task sequence step
 
 # Requirements
 Powershell 3.0<br/>
-IIS setup with this project's template file and Images folder<br/>
+IIS setup with the files from the "IIS" folder<br/>
 
 # Things to Edit to Make This Work For You
 template.html file - edit columns for your task sequence steps <br/>
