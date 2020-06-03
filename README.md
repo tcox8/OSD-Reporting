@@ -22,7 +22,7 @@ In my opinion, the best part about this is that it shows what task sequence step
 Powershell 3.0<br/>
 IIS setup with this project's template file and Images folder<br/>
 
-# Things to Edit
+# Things to Edit to Make This Work For You
 template.html file - edit columns for your task sequence steps <br/>
 Varibales - edit $Query to include your advertisement ID(s) for your task sequence, <br/>
             edit $SQLServer to your SQL server, <br/>
