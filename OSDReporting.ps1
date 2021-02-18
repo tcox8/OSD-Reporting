@@ -8,8 +8,7 @@
 # Purpose : This script will query the ConfigMgr database for Task Sequence Status Messages.
 #           The output is parsed and built into a webpage.
 #
-#           Things to edit: template.html file - edit columns for your task sequence steps
-#                           Varibales - edit $TSAdvertisementID to include your advertisement ID for your task sequence,
+#           Things to edit: Varibales - edit $TSAdvertisementID to match your advertisement ID for your task sequence,
 #                                       edit $SQLServer to your SQL server
 #                                       edit $Database to your database
 #                                       edit $IISPath to point to the appropriate IIS location
@@ -41,11 +40,11 @@
         [Parameter(Mandatory=$False)]
             [switch]$GridView,
         [Parameter(Mandatory=$False, HelpMessage="The SQL server name (and instance name where appropriate)")]
-            [string]$SQLServer = "Configmanager",
+            [string]$SQLServer = "",
         [Parameter(Mandatory=$False, HelpMessage="The name of the ConfigMgr database")]
-            [string]$Database = "CM_UHP",
+            [string]$Database = "",
         [Parameter(Mandatory=$False, HelpMessage="The Advertisement ID of the Task Sequence")]
-            [string]$TSAdvertisementID = "UHP2051F",
+            [string]$TSAdvertisementID = "",
         [Parameter(Mandatory=$False, HelpMessage="The path to IIS folder")]
             [string]$IISPath = "C:\inetpub\OSDReporting\wwwroot",
         [Parameter(Mandatory=$False, HelpMessage="The location of the smsmsgs directory containing the message DLLs")]
