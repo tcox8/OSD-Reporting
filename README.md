@@ -1,5 +1,14 @@
 # OSD-Reporting
-This script will query the ConfigMgr database for Task Sequence Status Messages. The output is parsed and built into a webpage. The script should be setup to run as a scheduled task. 
+This script will query the ConfigMgr database for Task Sequence Status Messages. The output is parsed and built into a webpage that will automatically refresh every 90 seconds. The script should be setup to run as a scheduled task. 
+
+
+# New in Version 2.0
+Reworked script to be considerably more dynamic.
+Added TSAdvertisementID as a variable for easier editing by end user.
+Added use of ConfigMgr module for importing TS and Driver steps for dynamic building of HTML.
+Grouped Driver steps together and put them as one step (this keeps the horizontal table size down).
+Added processing of skipped steps (when conditions are not met on TS Step). Hovering over the grey checkmark gives more detail.
+Now results sort with newest computers at top.
 
 
 The output will look like this. It lists every step of the task sequence as well as:<br/>
@@ -21,12 +30,10 @@ In my opinion, the best part about this is that it shows what task sequence step
 # Requirements
 Powershell 3.0<br/>
 IIS setup with the files from the "IIS" folder<br/>
+Configuration Manager console installed<br/>
 
 # Things to Edit to Make This Work For You
-template.html file - edit columns for your task sequence steps <br/>
-Varibales - edit $Query to include your advertisement ID(s) for your task sequence, <br/>
+Varibales - edit $TSAdvertisementID to match your advertisement ID(s) for your task sequence, <br/>
             edit $SQLServer to your SQL server, <br/>
             edit $Database to your database, <br/>
-            edit variables in foreach loop to mimic the columns in template.html file, <br/>
-            edit $table to have same columns, <br/>
-            edit $template to point to the appropriate IIS location
+            edit $IISPath to point to the appropriate IIS location
