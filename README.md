@@ -1,10 +1,10 @@
 # New in Version 2.0
-Reworked script to be considerably more dynamic.
-Added TSAdvertisementID as a variable for easier editing by end user.
-Added use of ConfigMgr module for importing TS and Driver steps for dynamic building of HTML.
-Grouped Driver steps together and put them as one step (this keeps the horizontal table size down).
-Added processing of skipped steps (when conditions are not met on TS Step). Hovering over the grey checkmark gives more detail.
-Now results sort with newest computers at top.
+Reworked script to be considerably more dynamic.</br>
+Added TSAdvertisementID as a variable for easier editing by end user.</br>
+Added use of ConfigMgr module for importing TS and Driver steps for dynamic building of HTML.</br>
+Grouped Driver steps together and put them as one step (this keeps the horizontal table size down).</br>
+Added processing of skipped steps (when conditions are not met on TS Step). Hovering over the grey checkmark gives more detail.</br>
+Now results sort with newest computers at top.</br>
 
 </br>
 </br>
