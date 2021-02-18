@@ -8,7 +8,8 @@
 # Purpose : This script will query the ConfigMgr database for Task Sequence Status Messages.
 #           The output is parsed and built into a webpage.
 #
-#           Things to edit: Varibales - edit $TSAdvertisementID to match your advertisement ID for your task sequence,
+#           Things to edit: Varibales - edit $TSAdvertisementID to match your advertisement ID for your task sequence
+#                                       edit $TaskSequenceID to match your package ID of your task sequence
 #                                       edit $SQLServer to your SQL server
 #                                       edit $Database to your database
 #                                       edit $IISPath to point to the appropriate IIS location
@@ -39,13 +40,15 @@
             [switch]$CSV,
         [Parameter(Mandatory=$False)]
             [switch]$GridView,
-        [Parameter(Mandatory=$False, HelpMessage="The SQL server name (and instance name where appropriate)")]
+        [Parameter(Mandatory=$True, HelpMessage="The SQL server name (and instance name where appropriate)")]
             [string]$SQLServer = "",
-        [Parameter(Mandatory=$False, HelpMessage="The name of the ConfigMgr database")]
+        [Parameter(Mandatory=$True, HelpMessage="The name of the ConfigMgr database")]
             [string]$Database = "",
-        [Parameter(Mandatory=$False, HelpMessage="The Advertisement ID of the Task Sequence")]
+        [Parameter(Mandatory=$True, HelpMessage="The Advertisement ID of the Task Sequence")]
             [string]$TSAdvertisementID = "",
-        [Parameter(Mandatory=$False, HelpMessage="The path to IIS folder")]
+        [Parameter(Mandatory=$True, HelpMessage="The Task Sequence (package) ID of the Task Sequence")]
+            [string]$TaskSequenceID = "",
+        [Parameter(Mandatory=$True, HelpMessage="The path to IIS folder")]
             [string]$IISPath = "C:\inetpub\OSDReporting\wwwroot",
         [Parameter(Mandatory=$False, HelpMessage="The location of the smsmsgs directory containing the message DLLs")]
             [string]$SMSMSGSLocation = ""            
@@ -258,7 +261,7 @@ $SiteCode = Get-PSDrive -PSProvider CMSite
 #Set our drive to point to our SCCM environment
 Set-Location "$($SiteCode.Name):"
 
-$TaskSequenceID = 'UHP0049C' #This is our Task Sequence ID    
+#Setup some variables
 $TSSteps = (Get-CMTaskSequenceStep -TaskSequenceID $TaskSequenceID) | Where-Object {$_.Enabled -eq 'False'} | Select-Object Name #This gets all of the steps for a task sequence if they are enabled
 $TSDriverSteps = (Get-CMTaskSequenceStepApplyDriverPackage -TaskSequenceId $TaskSequenceID) | Select-Object Name #This gets all of the driver install steps
 $DriverIndexStart = $TSDriverSteps[0].name #Get the name of the first step in the list of Driver steps
