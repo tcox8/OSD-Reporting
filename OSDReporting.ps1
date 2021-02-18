@@ -8,7 +8,7 @@
 # Purpose : This script will query the ConfigMgr database for Task Sequence Status Messages.
 #           The output is parsed and built into a webpage.
 #
-#           Things to edit: Varibales - edit $TSAdvertisementID to match your advertisement ID for your task sequence
+#           Things to edit: Variables - edit $TSAdvertisementID to match your advertisement ID for your task sequence
 #                                       edit $TaskSequenceID to match your package ID of your task sequence
 #                                       edit $SQLServer to your SQL server
 #                                       edit $Database to your database
