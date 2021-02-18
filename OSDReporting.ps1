@@ -1,24 +1,29 @@
 #############################################################################
 # Author  : Tyler Cox
 #
-# Version : 1.0.0
+# Version : 2.0.0
 # Created : 02/25/2020
-# Modified : 
+# Modified : 02/17/2021
 #
 # Purpose : This script will query the ConfigMgr database for Task Sequence Status Messages.
 #           The output is parsed and built into a webpage.
 #
-#           Things to edit: template.html file - edit columns for your task sequence steps
-#                           Varibales - edit $Query to include your advertisement ID(s) for your task sequence,
+#           Things to edit: Varibales - edit $TSAdvertisementID to match your advertisement ID for your task sequence,
 #                                       edit $SQLServer to your SQL server
 #                                       edit $Database to your database
-#                                       edit variables in foreach loop to mimic the columns in template.html file
-#                                       edit $table to have same columns
-#                                       edit $template to point to the appropriate IIS location
+#                                       edit $IISPath to point to the appropriate IIS location
 #
-# Requirements: Powershell 3.0, IIS Setup with this project's template file
+# Requirements: Powershell 3.0, IIS Setup with this project's template file,
+#               Must have ConfigManager console installed!
 #
-# Change Log: Ver 1.0.0 - Initial Release
+# Change Log:   Ver 2.0.0 - Reworked script to be considerably more dynamic
+#                         - Added TSAdvertisementID as a variable for easier editing by end user
+#                         - Added use of ConfigMgr module for importing TS and Driver steps for dynamic building of HTML
+#                         - Grouped Driver steps together and put them as one step (this keeps the horizontal table size down)
+#                         - Added processing of skipped steps (when conditions are not met on TS Step). Hovering over the grey checkmark gives more detail
+#                         - Now results sort with newest computers at top
+#
+#               Ver 1.0.0 - Initial Release
 #
 #############################################################################
 
@@ -35,13 +40,26 @@
         [Parameter(Mandatory=$False)]
             [switch]$GridView,
         [Parameter(Mandatory=$False, HelpMessage="The SQL server name (and instance name where appropriate)")]
-            [string]$SQLServer = “”,
+            [string]$SQLServer = "",
         [Parameter(Mandatory=$False, HelpMessage="The name of the ConfigMgr database")]
-            [string]$Database = “”,
+            [string]$Database = "",
+        [Parameter(Mandatory=$False, HelpMessage="The Advertisement ID of the Task Sequence")]
+            [string]$TSAdvertisementID = "",
+        [Parameter(Mandatory=$False, HelpMessage="The path to IIS folder")]
+            [string]$IISPath = "C:\inetpub\OSDReporting\wwwroot",
         [Parameter(Mandatory=$False, HelpMessage="The location of the smsmsgs directory containing the message DLLs")]
-            [string]$SMSMSGSLocation = "C:\Program Files\Microsoft Configuration Manager\bin\X64\system32\smsmsgs"
+            [string]$SMSMSGSLocation = ""            
         )
  
+#Found that this file is in a different path based on OS/console version
+If (Test-Path ((Split-Path $env:SMS_ADMIN_UI_PATH) + "\X64\system32\smsmsgs"))
+    {
+        $SMSMSGSLocation = (Split-Path $env:SMS_ADMIN_UI_PATH) + "\X64\system32\smsmsgs"
+    }
+ElseIf (Test-Path ($ENV:SMS_ADMIN_UI_PATH + '\00000409'))
+    {
+        $SMSMSGSLocation =  ($ENV:SMS_ADMIN_UI_PATH + '\00000409')
+    }
 
 # Function to get the date difference
 Function Get-DateDifference
@@ -115,13 +133,12 @@ $objMessage
 }
  
 # Open a database connection
-$connectionString = “Server=$SQLServer;Database=$database;Integrated Security=SSPI;”
+$connectionString = "Server=$SQLServer;Database=$database;Integrated Security=SSPI;"
 $connection = New-Object System.Data.SqlClient.SqlConnection
 $connection.ConnectionString = $connectionString
 $connection.Open()
  
 # Define the SQl query
-#2372004C and 2372004B are the advertisement IDs for the Windows 10 task sequence. 
 $Query = "
 select smsgs.RecordID, 
 CASE smsgs.Severity
@@ -148,7 +165,7 @@ join v_StatMsgModuleNames modNames on smsgs.ModuleName = modNames.ModuleName
 join v_StatMsgAttributes on v_StatMsgAttributes.RecordID = smwis.RecordID
 where (smsgs.Component = 'Task Sequence Engine' or smsgs.Component = 'Task Sequence Action')
 and v_StatMsgAttributes.AttributeID = 401 
-and (v_StatMsgAttributes.AttributeValue = '2372004C' or v_StatMsgAttributes.AttributeValue = '2372004B')
+and (v_StatMsgAttributes.AttributeValue = '" + $TSAdvertisementID + "')
 and DATEDIFF(hour,smsgs.Time,GETDATE()) < '24'
 Order by smsgs.Time DESC
 "
@@ -158,7 +175,7 @@ Order by smsgs.Time DESC
 $command = $connection.CreateCommand()
 $command.CommandText = $query
 $reader = $command.ExecuteReader()
-$table = new-object “System.Data.DataTable”
+$table = new-object "System.Data.DataTable"
 $table.Load($reader)
  
 # Close the connection
@@ -230,374 +247,190 @@ foreach ($Row in $Table.Rows)
 
 
 $html = @() #Create a blank array
-$Messages = $StatusMessages | Sort-Object -Property "Date / Time" | Group-Object -Property System #Grab our status messages, sort and group them.
+$Messages = $StatusMessages | Sort-Object -Property "Date / Time" -descending | Group-Object -Property System #Grab our status messages, sort and group them.
 
-ForEach ($Computer in $Messages) 
-    {         
-        #Null out our variables
-        $Script:ImageStarted = $null
-        $Script:ImageCompleted = $null
-        $Script:ImageDuration = $null
-        $Script:NameDuringImaging = $null
-        $Script:01RestartinWinPE = $null
-        $Script:02PartitionDisk0 = $null
-        $Script:03ConnecttoNetworkFolder = $null
-        $Script:04CopyFileforWBC = $null
-        $Script:05RunPowershellScript = $null
-        $Script:06ApplyOperatingSystem = $null
-        $Script:07ApplyDeviceDrivers = $null
-        $Script:08ApplyWindowsSettings = $null
-        $Script:09ApplyNetworkSettings = $null
-        $Script:10SetupWindowsandConfigMgr = $null
-        $Script:11KillSomeTime = $null
-        $Script:12JoinDomain = $null
-        $Script:13RestartComputer = $null
-        $Script:14InstallAppAlertus = $null
-        $Script:15InstallAppLAPS = $null
-        $Script:16InstallAppMcAfeeAgent = $null
-        $Script:17InstallUpdates = $null
-        $Script:18EnableMouse = $null
-        $Script:19RestartComputer = $null
-        $Script:20RunWindowsBuildChecker = $null
-        $Script:21DisableMouse = $null
-        $Script:22ExitTaskSequence = $null
-        
+#Import ConfigMgr module
+Import-Module ((Split-Path $env:SMS_ADMIN_UI_PATH)+'\configurationmanager.psd1') -ErrorAction Stop
 
+#Get Site Code. Note: Console must be on this machine for this to work.
+$SiteCode = Get-PSDrive -PSProvider CMSite
+
+#Set our drive to point to our SCCM environment
+Set-Location "$($SiteCode.Name):"
+
+$TaskSequenceID = 'UHP0049C' #This is our Task Sequence ID    
+$TSSteps = (Get-CMTaskSequenceStep -TaskSequenceID $TaskSequenceID) | Where-Object {$_.Enabled -eq 'False'} | Select-Object Name #This gets all of the steps for a task sequence if they are enabled
+$TSDriverSteps = (Get-CMTaskSequenceStepApplyDriverPackage -TaskSequenceId $TaskSequenceID) | Select-Object Name #This gets all of the driver install steps
+$DriverIndexStart = $TSDriverSteps[0].name #Get the name of the first step in the list of Driver steps
+$index = $TSSteps.Name.IndexOf($DriverIndexStart)#Get the index (Start position) of the first driver step in the task sequence
+$TSStepsNoDrivers = Compare-Object -ReferenceObject $TSSteps.Name -DifferenceObject $TSDriverSteps.Name -PassThru #Compare the full task sequence step list and the driver steps. Gets all that are not driver steps.
+[regex]$ParRegex = "\((.*?)\)" #RegEx used later
+$Script:LastLog = $null
+$Script:ImageDuration = $null
+$TSStepsNoDrivers = $TSStepsNoDrivers[0..($index -1)] + "Install Drivers" + $TSStepsNoDrivers[$index..($TSStepsNoDrivers.Length -1)] #Rebuilds the arrays to replace the driver steps with one step lableed "Install driver"
+$tablecount = 1 #Count used when building HTML table
+
+
+
+ForEach ($Computer in $Messages) #Loop through each computer
+    {                
+        $Computer = $Computer.Group | Sort-Object -Property "Date / Time" #Here we are resorting so that the newest statmessage comes first. We have to sort again here because the first sort puts the newest computer at top but rearranges the statmsg group
         $green = '<img src="images/checks/greenCheckMark_round.png" alt="Green Check Mark">' #Green is always the same so we can declare it here.
-        ForEach ($statmsg in $Computer.Group)
-            {      
-                $NameDuringImaging = $statmsg.System
-                If ($statmsg.MessageID -eq "11144") { $ImageStarted = $statmsg."Date / Time"} #MessageID 11144 is the start of a task sequence
-                If (($statmsg.Description -like "*Restart in Windows PE*") -AND ($statmsg.Severity -eq "Informational")) 
+        $varHash = [ordered]@{} #hash table used for storing variables
+        $DriverCount = 1 #Count used for cycling through driver steps
+        If (($Computer.Description -contains "The task sequence execution engine successfully completed a task sequence.") -AND ($Computer.Description -notcontains "The task sequence execution engine started execution of a task sequence."))
+            {
+                #we found a computer that the status messages are outside retrived hours (this is set in the initial parameters)
+                #We aren't going to process this. If we did it would mess up the display in the dynamic html
+                return
+            }
+        ForEach ($statmsg in $Computer) #Loop through each status message
+            {
+                $NameDuringImaging = $statmsg.System #Get the computer name
+                $VarCount = 1 #Count used for adding to name (this is used in the HTML to show what step we are on)
+                
+                ForEach ($step in $TSStepsNoDrivers) #Loop through each TS Step
                     {
-                        $01RestartinWinPE = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
+                        $var =  "$($VarCount)" + ' - ' + $step #This sets the variable to include a number plus the name. Just for the html page
+                        If ($Statmsg.MessageID -eq "11144") { $ImageStarted = $statmsg."Date / Time"} #MessageID 11144 is the start of a task sequence
+                        ElseIf ($step -eq "Install Drivers") #This ElseIf block is where we process our driver steps. 
+                            {    
+                                $RegExString = $ParRegex.match($Statmsg.Description).Groups[1].value #Gets the name of the step by looking at the value between the parenthesies.
+                                If ($TSDriverSteps -match $RegExString) #Gets the correct driver step by comparing the step we are in with the list of driver steps
+                                    {
+                                        If (($Statmsg.Description -like "The task sequence execution engine successfully completed the action*$($Step)*") -AND ($statmsg.Severity -eq "Informational"))
+                                            {
+                                                #Process if Driver step is successful
+                                                $var = "$($VarCount)" + ' - ' + "Install Drivers"
+                                                $text = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
+                                                $varHash.Add($var,'<a href=" " title="' + $text + '"><img src="images/checks/greenCheckMark_round.png" alt="Green Check Mark"></a>') #Adding text of the drivers just for a reference in the html
+                                                $LastLog = $statmsg."Date / Time"
+                                                $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
+                                            }
+                                        ElseIf (($Statmsg.Description -like "The task sequence execution engine failed executing the action*$($Step)*") -AND ($statmsg.Severity -eq "Error")) 
+                                            {
+                                                #Process if Driver step errors
+                                                $var = "$($VarCount)" + ' - ' + "Install Drivers"
+                                                $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
+                                                $varHash.Add($var,'<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>') #set pic to red and include error text
+                                                $LastLog = $statmsg."Date / Time"
+                                                $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
+                                            }
+                                        ElseIf ($DriverCount -eq $TSDriverSteps.Count) 
+                                            {
+                                                #Process if there are no driver packages for this computer in the TS
+                                                $var = "$($VarCount)" + ' - ' + "Install Drivers"
+                                                $text = "There was not a driver package available in the Task Sequence for this device"
+                                                $varHash.Add($var,'<a href=" " title="' + $text + '"><img src="images/checks/greyCheckMark_round.png" alt="Grey Check Mark"></a>') #Adding text of the drivers just for a reference in the html
+                                                $LastLog = $statmsg."Date / Time"
+                                                $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
+                                            }
+                                        else 
+                                            {
+                                                $DriverCount += 1
+                                            }
+                                        }                                            
+                                }
+                        ElseIf (($Statmsg.Description -like "The task sequence execution engine successfully completed the action*$($Step)*") -AND ($statmsg.Severity -eq "Informational")) 
+                            {
+                                #Processing all successful steps
+                                $varHash.Add($var,$green)
+                                $LastLog = $statmsg."Date / Time"
+                                $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
+                            }
+                        ElseIf (($Statmsg.Description -like "The task sequence execution engine failed executing the action*$($Step)*") -AND ($statmsg.Severity -eq "Error")) 
+                            {
+                                #Processing all error steps
+                                $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
+                                $varHash.Add($var,'<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>') #set pic to red and include error text
+                                $LastLog = $statmsg."Date / Time"
+                                $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
+                            }
+                        ElseIF (($Statmsg.Description -like "The task sequence execution engine skipped the action*$($Step)*") -AND ($statmsg.Severity -eq "Informational")) 
+                            {
+                                #Processing all skipped steps
+                                $skiptext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
+                                $varHash.Add($var,'<a href=" " title="' + $skiptext + '"><img src="images/checks/greyCheckMark_round.png" alt="Grey Check Mark"></a>') #set pic to grey and include error text
+                                $LastLog = $statmsg."Date / Time"
+                                $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
+                            }
+                        ElseIf (($Statmsg.MessageID -eq "11171") -or ($statmsg.MessageID -eq "11143")) #Task Sequence Completed Successfully
+                            {
+                                #Processing end of TS
+                                $varHash.Add('Exit Task Sequence',$green)
+                                $ImageCompleted = $statmsg."Date / Time"
+                                $LastLog = $statmsg."Date / Time"
+                                $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $ImageCompleted
+                            }
+                        ElseIf ($Statmsg.MessageID -eq "11141") #Failed Task Sequence
+                            {
+                                #Processing if the TS failed (If a TS step fails and is set to NOT continue on error)
+                                $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
+                                $varHash.Add('Exit Task Sequence','<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>') #set pic to red and include error text
+                                $ImageCompleted = $statmsg."Date / Time"
+                                $LastLog = $statmsg."Date / Time"
+                                $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $ImageCompleted
+                            }
+                        Else 
+                            {
+                                #We don't care about it!
+                            }
+                        $VarCount += 1 #increase our variable count
                     }
-                ElseIf (($statmsg.Description -like "*Restart in Windows PE*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $01RestartinWinPE = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If ((($statmsg.Description -like "*Partition Disk 0 - UEFI*") -OR ($statmsg.Description -like "*Partition Disk 0 - BIOS*")) -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $02PartitionDisk0 = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf ((($statmsg.Description -like "*Partition Disk 0 - UEFI*") -OR ($statmsg.Description -like "*Partition Disk 0 - BIOS*")) -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $02PartitionDisk0 = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*Connect to Network Folder*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $03ConnecttoNetworkFolder = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*Connect to Network Folder*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $03ConnecttoNetworkFolder = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*Copy File for WBC*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $04CopyFileforWBC = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*Copy File for WBC*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $04CopyFileforWBC = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*Run Powershell Script*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $05RunPowershellScript = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*Run Powershell Script*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $05RunPowershellScript = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*Apply Operating System*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $06ApplyOperatingSystem = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*Apply Operating System*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $06ApplyOperatingSystem = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*(Apply Device Drivers)*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $07ApplyDeviceDrivers = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*(Apply Device Drivers)*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $07ApplyDeviceDrivers = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*Apply Windows Settings*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $08ApplyWindowsSettings = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*Apply Windows Settings*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $08ApplyWindowsSettings = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*Apply Network Settings*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $09ApplyNetworkSettings = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*Apply Network Settings*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $09ApplyNetworkSettings = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*Setup Windows and Configuration Manager*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $10SetupWindowsandConfigMgr = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*Setup Windows and Configuration Manager*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $10SetupWindowsandConfigMgr = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog                                               
-                    }
-                If (($statmsg.Description -like "*Kill Some Time*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $11KillSomeTime = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*Kill Some Time*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $11KillSomeTime = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*Join Domain*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $12JoinDomain = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*Join Domain*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $12JoinDomain = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*system reboot initiated by the action (Join Domain)*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $13RestartComputer = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*system reboot initiated by the action (Join Domain)*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $13RestartComputer = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*application Alertus Desktop Alert Client*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $14InstallAppAlertus = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*application Alertus Desktop Alert Client*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $14InstallAppAlertus = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*application Local Administrator Password Solution*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $15InstallAppLAPS = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*application Local Administrator Password Solution*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $15InstallAppLAPS = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*application McAfee Agent*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $16InstallAppMcAfeeAgent= $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*application McAfee Agent*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $16InstallAppMcAfeeAgent = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*(Install Updates)*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $17InstallUpdates= $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*(Install Updates)*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $17InstallUpdates = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*(Enable Mouse)*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $18EnableMouse= $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*(Enable Mouse)*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $18EnableMouse = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*(Restart Computer - 1)*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $19RestartComputer = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*(Restart Computer - 1)*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $19RestartComputer = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*(Run WBC (Windows Build Checker))*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $20RunWindowsBuildChecker = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*(Run WBC (Windows Build Checker))*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $20RunWindowsBuildChecker = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.Description -like "*(Disable Mouse)*") -AND ($statmsg.Severity -eq "Informational")) 
-                    {
-                        $21DisableMouse = $green
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                ElseIf (($statmsg.Description -like "*(Disable Mouse)*") -AND ($statmsg.Severity -eq "Error")) 
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $21DisableMouse = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                    }
-                If (($statmsg.MessageID -eq "11171") -or ($statmsg.MessageID -eq "11143")) 
-                    {
-                        $22ExitTaskSequence = $green
-                        $ImageCompleted = $statmsg."Date / Time"
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $ImageCompleted
-                    }
-                If ($statmsg.MessageID -eq "11141") #Failed Task Sequence
-                    {
-                        $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                        $22ExitTaskSequence = '<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>' #set pic to red and include error text
-                        $ImageCompleted = $statmsg."Date / Time"
-                        $LastLog = $statmsg."Date / Time"
-                        $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $ImageCompleted
-                    }
+                
+    
 
+                }
                 #Build our HTML Table
-                $table = '
-                <tr class="row100">
+                If ($tablecount -eq 1) #This ensures that our html table headers are created only on the first pass through
+                    {
+                        $table = '
+                        <thead>
+                            <tr class = "row100 head">
+                                <th class="column100 column2" data-column="column2">Image Started</th>
+                                <th class="column100 column3" data-column="column3">Image Completed</th>
+                                <th class="column100 column4" data-column="column4">Image Duration</th>
+                                <th class="column100 column5" data-column="column5">Last Log</th>
+                                <th class="column100 column6" data-column="column6">Name During Imaging</th>'
+                        $column = 7 #hardcoded number. No need to change this as it is used for building the table
+                        ForEach ($item in $varHash.GetEnumerator())
+                            {
+                                $String = '<th class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + $item.Name + '</th>'
+                                $table += $String
+                                $column += 1
+                            }
+                        $table += '</tr></thead><tbody>'
+                        $tablecount += 1
+                    }
+        
+                #Here we process each row (computer data from results above) to the table
+                $table += '<tr class="row100">
                     <td class="column100 column2" data-column="column2">'+ $ImageStarted +'</td>
                     <td class="column100 column3" data-column="column3">'+ $ImageCompleted +'</td>
                     <td class="column100 column4" data-column="column4">'+ $ImageDuration +'</td>
                     <td class="column100 column5" data-column="column5">'+ $LastLog +'</td>
-                    <td class="column100 column6" data-column="column6">'+ $NameDuringImaging +'</td>
-                    <td class="column100 column8" data-column="column8">'+ $01RestartinWinPE +'</td>
-                    <td class="column100 column9" data-column="column9">'+ $02PartitionDisk0 +'</td>
-                    <td class="column100 column10" data-column="column10">'+ $03ConnecttoNetworkFolder +'</td>
-                    <td class="column100 column11" data-column="column11">'+ $04CopyFileforWBC +'</td>
-                    <td class="column100 column12" data-column="column12">'+ $05RunPowershellScript +'</td>
-                    <td class="column100 column13" data-column="column13">'+ $06ApplyOperatingSystem +'</td>
-                    <td class="column100 column14" data-column="column14">'+ $07ApplyDeviceDrivers +'</td>
-                    <td class="column100 column15" data-column="column15">'+ $08ApplyWindowsSettings +'</td>
-                    <td class="column100 column16" data-column="column16">'+ $09ApplyNetworkSettings +'</td>
-                    <td class="column100 column17" data-column="column17">'+ $10SetupWindowsandConfigMgr +'</td>
-                    <td class="column100 column18" data-column="column18">'+ $11KillSomeTime +'</td>
-                    <td class="column100 column19" data-column="column19">'+ $12JoinDomain +'</td>
-                    <td class="column100 column20" data-column="column20">'+ $13RestartComputer +'</td>
-                    <td class="column100 column21" data-column="column21">'+ $14InstallAppAlertus +'</td>
-                    <td class="column100 column22" data-column="column22">'+ $15InstallAppLAPS +'</td>
-                    <td class="column100 column23" data-column="column23">'+ $16InstallAppMcAfeeAgent +'</td>
-                    <td class="column100 column25" data-column="column25">'+ $17InstallUpdates +'</td>
-                    <td class="column100 column26" data-column="column26">'+ $18EnableMouse +'</td>
-                    <td class="column100 column27" data-column="column27">'+ $19RestartComputer +'</td>
-                    <td class="column100 column28" data-column="column28">'+ $20RunWindowsBuildChecker +'</td>
-                    <td class="column100 column29" data-column="column29">'+ $21DisableMouse +'</td>
-                    <td class="column100 column29" data-column="column29">'+ $22ExitTaskSequence +'</td>
-                </tr>'
-
-            }
-            If ($ImageStarted -ne $null) 
-                {
-                    #Build the array. The HTML variable is used in the $template file. 
-                    $html = $html += $table
-                }
+                    <td class="column100 column6" data-column="column6">'+ $NameDuringImaging +'</td>'
+                $column = 7 #hardcoded number. No need to change this as it is used for building the table
+                ForEach ($item in $varHash.GetEnumerator())
+                    {
+                        $String = '<td class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + $item.value
+                        $table += $String
+                        $column += 1
+                    }
+                $table += '</tr>'
     }
+    
+        If ($ImageStarted -ne $null) #This if statement will allow for only relevant TS status messages 
+            {
+                #Build the array. The HTML variable is used in the $template file. 
+                $html = $html += $table
+            }
+    
+   
 
 #Get the template file
-$template = (Get-Content -Path C:\inetpub\OSDReporting\template.html -raw)
+$template = (Get-Content -Path ($IISPath + "\template.html") -raw)
 #Place variables and new $html into the template file and rename it as index.html
-Invoke-Expression "@`"`r`n$template`r`n`"@" | Set-Content -Path "C:\inetpub\OSDReporting\index.html"
+Invoke-Expression "@`"`r`n$template`r`n`"@" | Set-Content -Path ($IISPath + "\index.html")
+
+
