@@ -3,7 +3,7 @@
 #
 # Version : 2.0.0
 # Created : 02/25/2020
-# Modified : 02/17/2021
+# Modified : 02/19/2021
 #
 # Purpose : This script will query the ConfigMgr database for Task Sequence Status Messages.
 #           The output is parsed and built into a webpage.
@@ -17,7 +17,9 @@
 # Requirements: Powershell 3.0, IIS Setup with this project's template file,
 #               Must have ConfigManager console installed!
 #
-# Change Log:   Ver 2.0.0 - Reworked script to be considerably more dynamic
+# Change Log:   Ver 2.1 - Fixed HTML headers issue caused by the resorting in Ver 2.0
+#
+#               Ver 2.0.0 - Reworked script to be considerably more dynamic
 #                         - Added TSAdvertisementID as a variable for easier editing by end user
 #                         - Added use of ConfigMgr module for importing TS and Driver steps for dynamic building of HTML
 #                         - Grouped Driver steps together and put them as one step (this keeps the horizontal table size down)
@@ -272,6 +274,7 @@ $Script:LastLog = $null
 $Script:ImageDuration = $null
 $TSStepsNoDrivers = $TSStepsNoDrivers[0..($index -1)] + "Install Drivers" + $TSStepsNoDrivers[$index..($TSStepsNoDrivers.Length -1)] #Rebuilds the arrays to replace the driver steps with one step lableed "Install driver"
 $tablecount = 1 #Count used when building HTML table
+$stepscount = 1 #Count used when building HTML table header
 
 
 
@@ -396,13 +399,16 @@ ForEach ($Computer in $Messages) #Loop through each computer
                                 <th class="column100 column5" data-column="column5">Last Log</th>
                                 <th class="column100 column6" data-column="column6">Name During Imaging</th>'
                         $column = 7 #hardcoded number. No need to change this as it is used for building the table
-                        ForEach ($item in $varHash.GetEnumerator())
+                        ForEach ($item in $TSStepsNoDrivers)
                             {
-                                $String = '<th class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + $item.Name + '</th>'
+                                $item = "$($stepscount)" + ' - ' + $item
+                                $String = '<th class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + $item + '</th>'
                                 $table += $String
                                 $column += 1
+                                $stepscount += 1
                             }
-                        $table += '</tr></thead><tbody>'
+                        $table += '<th class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + "Exit Task Sequence" + '</th>'  #Manually add this as the last step
+                        $table += '</tr></thead><tbody>' #Manually add this to close out the headers and start the tbody
                         $tablecount += 1
                     }
         
