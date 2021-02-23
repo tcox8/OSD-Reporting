@@ -33,7 +33,7 @@ location somewhere on the server. You'll reference this path later. Don't make a
 
 8 - Copy over the contents of the IIS folder into the site's folder.
 
-![Table Example](ExampleImages/IIS-Step8-IISFolder.PNG?raw=true)
+![Table Example](ExampleImages/IIS-Step8-IISfolder.PNG?raw=true)
 
 
 # Step 2 - DNS
@@ -64,7 +64,7 @@ location somewhere on the server. You'll reference this path later. Don't make a
     Set it to Daily, reoccuring every 1 day
     Under Advanced settings, tell it to repeate the task every 5 minutes
     
-![Table Example](ExampleImages/ST-Step3-Trigger.PNG?raw=true)
+![Table Example](ExampleImages/ST-Step3-Triggers.PNG?raw=true)
 
 4 - On the "Actions" tab, select "New"  Note: This is where you'll put in your variables!!!
 
