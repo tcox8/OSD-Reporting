@@ -5,7 +5,7 @@ location somewhere on the server. You'll reference this path later. Don't make a
 
 1 - Right Click "Sites" and select "Create New Website"
 
-![Table Example](ExampleImages/IIS-Step1-AddWebsite.png?raw=true)
+![IIS Step 1 Example](ExampleImages/IIS-Step1-AddWebsite.png?raw=true)
 
 
 2 - Give the site a name and path. Change the "IP Address" from  "All Unassigned" to the server's IP.
