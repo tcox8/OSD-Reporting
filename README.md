@@ -37,8 +37,4 @@ IIS setup with the files from the "IIS" folder<br/>
 Configuration Manager console installed<br/>
 
 # Things to Edit to Make This Work For You
-Variables - edit $TSAdvertisementID to match your advertisement ID for your task sequence, <br/>
-            edit $TaskSequenceID to match the package ID of the task sequence, </br>
-            edit $SQLServer to your SQL server, <br/>
-            edit $Database to your database, <br/>
-            edit $IISPath to point to the appropriate IIS location
+Please review the [Detailed Setup Guide](DetailedSetupGuide.md) for more information on setting this up.
