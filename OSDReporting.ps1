@@ -1,9 +1,9 @@
 #############################################################################
 # Author  : Tyler Cox
 #
-# Version : 2.1
+# Version : 2.2
 # Created : 02/25/2020
-# Modified : 02/19/2021
+# Modified : 02/24/2021
 #
 # Purpose : This script will query the ConfigMgr database for Task Sequence Status Messages.
 #           The output is parsed and built into a webpage.
@@ -17,7 +17,9 @@
 # Requirements: Powershell 3.0, IIS Setup with this project's template file,
 #               Must have ConfigManager console installed!
 #
-# Change Log:   Ver 2.1 - Fixed HTML headers issue caused by the resorting in Ver 2.0
+# Change Log:   Ver 2.2 - Fixed an issue where data was carrying over to the next computer 
+#
+#               Ver 2.1 - Fixed HTML headers issue caused by the resorting in Ver 2.0
 #
 #               Ver 2.0.0 - Reworked script to be considerably more dynamic
 #                         - Added TSAdvertisementID as a variable for easier editing by end user
@@ -288,12 +290,16 @@ ForEach ($Computer in $Messages) #Loop through each computer
             {
                 #we found a computer that the status messages are outside retrived hours (this is set in the initial parameters)
                 #We aren't going to process this. If we did it would mess up the display in the dynamic html
+                write-host "hi"
                 return
             }
         ForEach ($statmsg in $Computer) #Loop through each status message
             {
                 $NameDuringImaging = $statmsg.System #Get the computer name
                 $VarCount = 1 #Count used for adding to name (this is used in the HTML to show what step we are on)
+                $ImageDuration = $null #Null out some variables between computers so we don't carry over unwanted data
+                $ImageCompleted = $null
+                $LastLog = $null
                 
                 ForEach ($step in $TSStepsNoDrivers) #Loop through each TS Step
                     {
@@ -441,5 +447,3 @@ ForEach ($Computer in $Messages) #Loop through each computer
 $template = (Get-Content -Path ($IISPath + "\template.html") -raw)
 #Place variables and new $html into the template file and rename it as index.html
 Invoke-Expression "@`"`r`n$template`r`n`"@" | Set-Content -Path ($IISPath + "\index.html")
-
-
