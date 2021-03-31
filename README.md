@@ -5,6 +5,8 @@ Added use of ConfigMgr module for importing TS and Driver steps for dynamic buil
 Grouped Driver steps together and put them as one step (this keeps the horizontal table size down).</br>
 Added processing of skipped steps (when conditions are not met on TS Step). Hovering over the grey checkmark gives more detail.</br>
 Now results sort with newest computers at top.</br>
+Added support to specify multiple TSadvertisment IDs so that we can see multiple deployments for a TS</br>
+Added support for Modern Driver Management using the -MDM parameter. 
 
 </br>
 </br>
