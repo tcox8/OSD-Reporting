@@ -1,34 +1,45 @@
 #############################################################################
 # Author  : Tyler Cox
 #
-# Version : 2.2
+# Version : 2.4
 # Created : 02/25/2020
-# Modified : 02/24/2021
+# Modified : 03/18/2021
 #
 # Purpose : This script will query the ConfigMgr database for Task Sequence Status Messages.
 #           The output is parsed and built into a webpage.
 #
-#           Things to edit: Variables - edit $TSAdvertisementID to match your advertisement ID for your task sequence
-#                                       edit $TaskSequenceID to match your package ID of your task sequence
-#                                       edit $SQLServer to your SQL server
-#                                       edit $Database to your database
-#                                       edit $IISPath to point to the appropriate IIS location
+#           Things to set: Paramaters - set $TSAdvertisementID to match your advertisement ID for your task sequence
+#                                       set $TaskSequenceID to match your package ID of your task sequence
+#                                       set $SQLServer to your SQL server
+#                                       set $Database to your database
+#                                       set $IISPath to point to the appropriate IIS location
+#                                       set $MDM to '$true' if you use Modern Device Management
 #
 # Requirements: Powershell 3.0, IIS Setup with this project's template file,
 #               Must have ConfigManager console installed!
 #
-# Change Log:   Ver 2.2 - Fixed an issue where data was carrying over to the next computer 
+# Change Log:   Ver 2.4 - Added support to specify multiple TSadvertisment IDs so that we can see multiple deployments for a TS
+#                       - Webpage now will let you know when there is not data being received from the query
+#               
+#               Ver 2.3 - Added support/parameter for MDM (Modern Driver Management)
+#                       - Tidied up some code
+#   
+#               Ver 2.2 - Fixed an issue where data was carrying over to the next computer 
+#
+#               Ver 2.2 - Fixed an issue where data was carrying over to the next computer 
 #
 #               Ver 2.1 - Fixed HTML headers issue caused by the resorting in Ver 2.0
 #
-#               Ver 2.0.0 - Reworked script to be considerably more dynamic
-#                         - Added TSAdvertisementID as a variable for easier editing by end user
-#                         - Added use of ConfigMgr module for importing TS and Driver steps for dynamic building of HTML
-#                         - Grouped Driver steps together and put them as one step (this keeps the horizontal table size down)
-#                         - Added processing of skipped steps (when conditions are not met on TS Step). Hovering over the grey checkmark gives more detail
-#                         - Now results sort with newest computers at top
+#               Ver 2.1 - Fixed HTML headers issue caused by the resorting in Ver 2.0
 #
-#               Ver 1.0.0 - Initial Release
+#               Ver 2.0 - Reworked script to be considerably more dynamic
+#                       - Added TSAdvertisementID as a variable for easier editing by end user
+#                       - Added use of ConfigMgr module for importing TS and Driver steps for dynamic building of HTML
+#                       - Grouped Driver steps together and put them as one step (this keeps the horizontal table size down)
+#                       - Added processing of skipped steps (when conditions are not met on TS Step). Hovering over the grey checkmark gives more detail
+#                       - Now results sort with newest computers at top
+#
+#               Ver 1.0 - Initial Release
 #
 #############################################################################
 
@@ -49,13 +60,15 @@
         [Parameter(Mandatory=$True, HelpMessage="The name of the ConfigMgr database")]
             [string]$Database = "",
         [Parameter(Mandatory=$True, HelpMessage="The Advertisement ID of the Task Sequence")]
-            [string]$TSAdvertisementID = "",
+            [string[]]$TSAdvertisementID = "",
         [Parameter(Mandatory=$True, HelpMessage="The Task Sequence (package) ID of the Task Sequence")]
             [string]$TaskSequenceID = "",
         [Parameter(Mandatory=$True, HelpMessage="The path to IIS folder")]
             [string]$IISPath = "C:\inetpub\OSDReporting\wwwroot",
         [Parameter(Mandatory=$False, HelpMessage="The location of the smsmsgs directory containing the message DLLs")]
-            [string]$SMSMSGSLocation = ""            
+            [string]$SMSMSGSLocation = "",
+        [Parameter(Mandatory=$False, HelpMessage="Specify if using Modern Device Management")]
+            [string]$MDM = $False
         )
  
 #Found that this file is in a different path based on OS/console version
@@ -144,7 +157,26 @@ $connectionString = "Server=$SQLServer;Database=$database;Integrated Security=SS
 $connection = New-Object System.Data.SqlClient.SqlConnection
 $connection.ConnectionString = $connectionString
 $connection.Open()
- 
+
+#Get all Advertisement IDs 
+$TSAdvString = $null #This will be used in the next foreach loop
+[int]$TSCount = $TSAdvertisementID.Count #If we have more than one TS advertisement we have to change up our query
+ForEach ($AdvID in $TSAdvertisementID)
+    {
+        If ($TSCount -gt 1) #If there is more than one, we need to add "or" in our query 
+            {
+                $TSAdvstring += "v_StatMsgAttributes.AttributeValue = '" + $AdvID + "' or "
+            }
+        else 
+            {
+                $TSAdvstring += "v_StatMsgAttributes.AttributeValue = '" + $AdvID + "'"
+            }
+        $TScount -= 1
+    }
+
+
+
+
 # Define the SQl query
 $Query = "
 select smsgs.RecordID, 
@@ -172,7 +204,7 @@ join v_StatMsgModuleNames modNames on smsgs.ModuleName = modNames.ModuleName
 join v_StatMsgAttributes on v_StatMsgAttributes.RecordID = smwis.RecordID
 where (smsgs.Component = 'Task Sequence Engine' or smsgs.Component = 'Task Sequence Action')
 and v_StatMsgAttributes.AttributeID = 401 
-and (v_StatMsgAttributes.AttributeValue = '" + $TSAdvertisementID + "')
+and (" + $TSAdvstring + ")
 and DATEDIFF(hour,smsgs.Time,GETDATE()) < '24'
 Order by smsgs.Time DESC
 "
@@ -267,14 +299,21 @@ Set-Location "$($SiteCode.Name):"
 
 #Setup some variables
 $TSSteps = (Get-CMTaskSequenceStep -TaskSequenceID $TaskSequenceID) | Where-Object {$_.Enabled -eq 'False'} | Select-Object Name #This gets all of the steps for a task sequence if they are enabled
-$TSDriverSteps = (Get-CMTaskSequenceStepApplyDriverPackage -TaskSequenceId $TaskSequenceID) | Select-Object Name #This gets all of the driver install steps
-$DriverIndexStart = $TSDriverSteps[0].name #Get the name of the first step in the list of Driver steps
-$index = $TSSteps.Name.IndexOf($DriverIndexStart)#Get the index (Start position) of the first driver step in the task sequence
-$TSStepsNoDrivers = Compare-Object -ReferenceObject $TSSteps.Name -DifferenceObject $TSDriverSteps.Name -PassThru #Compare the full task sequence step list and the driver steps. Gets all that are not driver steps.
+If ($MDM -eq $false) #If not using Modern Driver Managment
+    {
+        $TSDriverSteps = (Get-CMTaskSequenceStepApplyDriverPackage -TaskSequenceId $TaskSequenceID) | Select-Object Name #This gets all of the driver install steps
+        $DriverIndexStart = $TSDriverSteps[0].name #Get the name of the first step in the list of Driver steps
+        $index = $TSSteps.Name.IndexOf($DriverIndexStart)#Get the index (Start position) of the first driver step in the task sequence
+        $TSStepsNoDrivers = Compare-Object -ReferenceObject $TSSteps.Name -DifferenceObject $TSDriverSteps.Name -PassThru #Compare the full task sequence step list and the driver steps. Gets all that are not driver steps.
+        $TSStepsNoDrivers = $TSStepsNoDrivers[0..($index -1)] + "Install Drivers" + $TSStepsNoDrivers[$index..($TSStepsNoDrivers.Length -1)] #Rebuilds the arrays to replace the driver steps with one step lableed "Install driver"
+    }
+elseif ($MDM -eq $True)
+    {
+        $TSStepsNoDrivers = $TSSteps #If using Modern Driver Management, no need to process all the driver steps and can just consider all the steps good as is
+    }
 [regex]$ParRegex = "\((.*?)\)" #RegEx used later
 $Script:LastLog = $null
 $Script:ImageDuration = $null
-$TSStepsNoDrivers = $TSStepsNoDrivers[0..($index -1)] + "Install Drivers" + $TSStepsNoDrivers[$index..($TSStepsNoDrivers.Length -1)] #Rebuilds the arrays to replace the driver steps with one step lableed "Install driver"
 $tablecount = 1 #Count used when building HTML table
 $stepscount = 1 #Count used when building HTML table header
 
@@ -305,7 +344,7 @@ ForEach ($Computer in $Messages) #Loop through each computer
                     {
                         $var =  "$($VarCount)" + ' - ' + $step #This sets the variable to include a number plus the name. Just for the html page
                         If ($Statmsg.MessageID -eq "11144") { $ImageStarted = $statmsg."Date / Time"} #MessageID 11144 is the start of a task sequence
-                        ElseIf ($step -eq "Install Drivers") #This ElseIf block is where we process our driver steps. 
+                        ElseIf (($step -eq "Install Drivers") -AND ($MDM -eq $false)) #This ElseIf block is where we process our driver steps only if not using Modern Driver Management
                             {    
                                 $RegExString = $ParRegex.match($Statmsg.Description).Groups[1].value #Gets the name of the step by looking at the value between the parenthesies.
                                 If ($TSDriverSteps -match $RegExString) #Gets the correct driver step by comparing the step we are in with the list of driver steps
@@ -341,8 +380,8 @@ ForEach ($Computer in $Messages) #Loop through each computer
                                             {
                                                 $DriverCount += 1
                                             }
-                                        }                                            
-                                }
+                                    }                                            
+                            }
                         ElseIf (($Statmsg.Description -like "The task sequence execution engine successfully completed the action*$($Step)*") -AND ($statmsg.Severity -eq "Informational")) 
                             {
                                 #Processing all successful steps
@@ -392,47 +431,47 @@ ForEach ($Computer in $Messages) #Loop through each computer
                 
     
 
-                }
-                #Build our HTML Table
-                If ($tablecount -eq 1) #This ensures that our html table headers are created only on the first pass through
-                    {
-                        $table = '
-                        <thead>
-                            <tr class = "row100 head">
-                                <th class="column100 column2" data-column="column2">Image Started</th>
-                                <th class="column100 column3" data-column="column3">Image Completed</th>
-                                <th class="column100 column4" data-column="column4">Image Duration</th>
-                                <th class="column100 column5" data-column="column5">Last Log</th>
-                                <th class="column100 column6" data-column="column6">Name During Imaging</th>'
-                        $column = 7 #hardcoded number. No need to change this as it is used for building the table
-                        ForEach ($item in $TSStepsNoDrivers)
-                            {
-                                $item = "$($stepscount)" + ' - ' + $item
-                                $String = '<th class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + $item + '</th>'
-                                $table += $String
-                                $column += 1
-                                $stepscount += 1
-                            }
-                        $table += '<th class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + "Exit Task Sequence" + '</th>'  #Manually add this as the last step
-                        $table += '</tr></thead><tbody>' #Manually add this to close out the headers and start the tbody
-                        $tablecount += 1
-                    }
-        
-                #Here we process each row (computer data from results above) to the table
-                $table += '<tr class="row100">
-                    <td class="column100 column2" data-column="column2">'+ $ImageStarted +'</td>
-                    <td class="column100 column3" data-column="column3">'+ $ImageCompleted +'</td>
-                    <td class="column100 column4" data-column="column4">'+ $ImageDuration +'</td>
-                    <td class="column100 column5" data-column="column5">'+ $LastLog +'</td>
-                    <td class="column100 column6" data-column="column6">'+ $NameDuringImaging +'</td>'
+            }
+        #Build our HTML Table
+        If ($tablecount -eq 1) #This ensures that our html table headers are created only on the first pass through
+            {
+                $table = '
+                <thead>
+                    <tr class = "row100 head">
+                        <th class="column100 column2" data-column="column2">Image Started</th>
+                        <th class="column100 column3" data-column="column3">Image Completed</th>
+                        <th class="column100 column4" data-column="column4">Image Duration</th>
+                        <th class="column100 column5" data-column="column5">Last Log</th>
+                        <th class="column100 column6" data-column="column6">Name During Imaging</th>'
                 $column = 7 #hardcoded number. No need to change this as it is used for building the table
-                ForEach ($item in $varHash.GetEnumerator())
+                ForEach ($item in $TSStepsNoDrivers)
                     {
-                        $String = '<td class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + $item.value
+                        $item = "$($stepscount)" + ' - ' + $item
+                        $String = '<th class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + $item + '</th>'
                         $table += $String
                         $column += 1
+                        $stepscount += 1
                     }
-                $table += '</tr>'
+                $table += '<th class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + "Exit Task Sequence" + '</th>'  #Manually add this as the last step
+                $table += '</tr></thead><tbody>' #Manually add this to close out the headers and start the tbody
+                $tablecount += 1
+            }
+
+        #Here we process each row (computer data from results above) to the table
+        $table += '<tr class="row100">
+            <td class="column100 column2" data-column="column2">'+ $ImageStarted +'</td>
+            <td class="column100 column3" data-column="column3">'+ $ImageCompleted +'</td>
+            <td class="column100 column4" data-column="column4">'+ $ImageDuration +'</td>
+            <td class="column100 column5" data-column="column5">'+ $LastLog +'</td>
+            <td class="column100 column6" data-column="column6">'+ $NameDuringImaging +'</td>'
+        $column = 7 #hardcoded number. No need to change this as it is used for building the table
+        ForEach ($item in $varHash.GetEnumerator())
+            {
+                $String = '<td class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + $item.value
+                $table += $String
+                $column += 1
+            }
+        $table += '</tr>'
     }
     
         If ($ImageStarted -ne $null) #This if statement will allow for only relevant TS status messages 
@@ -440,8 +479,16 @@ ForEach ($Computer in $Messages) #Loop through each computer
                 #Build the array. The HTML variable is used in the $template file. 
                 $html = $html += $table
             }
-    
-   
+
+#These if statements will process if we had an issue or if no devices were found to be imaging.
+If (($html.count -eq 0) -and ($messages.Name.Count -ge 1)) 
+    {
+        $html += "<h2 style='text-align: center;'><strong>At least one device was detected as staring the Task Sequence but there is an issue sorting the steps.</strong></h2>"
+    }
+elseif (($html.count -eq 0) -and ($messages.Name.Count -eq 0)) 
+    {
+        $html += "<h2 style='text-align: center;'><strong>No devices have been detected as starting the Task Sequence.</strong></h2>"
+    }
 
 #Get the template file
 $template = (Get-Content -Path ($IISPath + "\template.html") -raw)
