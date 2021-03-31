@@ -70,7 +70,7 @@ location somewhere on the server. You'll reference this path later. Don't make a
 
     For Action, select "start a program"
     Under Settings, for Program/script:  C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
-    For Arguments:  -NoProfile -ExecutionPolicy Bypass -File "PATHTOosdreporting.ps1" -SQLServer "YOURSQLSERVER" -Database "YOURDATABASE" -TSAdvertisementID "YOURADVERTISEMENTID" -TaskSequenceID "YOURPACKAGEID" -IISPath "YOURIISPATH"
+    For Arguments:  -NoProfile -ExecutionPolicy Bypass -File "PATHTOosdreporting.ps1" -SQLServer "YOURSQLSERVER" -Database "YOURDATABASE" -TSAdvertisementID "YOURADVERTISEMENTID" -TaskSequenceID "YOURPACKAGEID" -IISPath "YOURIISPATH" -$MDM "False" (set this to true if using Modern Device Management)
     
 ![Table Example](ExampleImages/ST-Step4-Actions1.PNG?raw=true)    
     
