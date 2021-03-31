@@ -1,4 +1,4 @@
-# New in Version 2.0
+# New in Version 2
 Reworked script to be considerably more dynamic.</br>
 Added TSAdvertisementID as a variable for easier editing by end user.</br>
 Added use of ConfigMgr module for importing TS and Driver steps for dynamic building of HTML.</br>
