@@ -26,6 +26,10 @@
 #   
 #               Ver 2.2 - Fixed an issue where data was carrying over to the next computer 
 #
+#               Ver 2.2 - Fixed an issue where data was carrying over to the next computer 
+#
+#               Ver 2.1 - Fixed HTML headers issue caused by the resorting in Ver 2.0
+#
 #               Ver 2.1 - Fixed HTML headers issue caused by the resorting in Ver 2.0
 #
 #               Ver 2.0 - Reworked script to be considerably more dynamic
@@ -325,6 +329,7 @@ ForEach ($Computer in $Messages) #Loop through each computer
             {
                 #we found a computer that the status messages are outside retrived hours (this is set in the initial parameters)
                 #We aren't going to process this. If we did it would mess up the display in the dynamic html
+                write-host "hi"
                 return
             }
         ForEach ($statmsg in $Computer) #Loop through each status message
