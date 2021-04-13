@@ -1,9 +1,9 @@
 #############################################################################
 # Author  : Tyler Cox
 #
-# Version : 2.4
+# Version : 2.5
 # Created : 02/25/2020
-# Modified : 03/18/2021
+# Modified : 04/13/2021
 #
 # Purpose : This script will query the ConfigMgr database for Task Sequence Status Messages.
 #           The output is parsed and built into a webpage.
@@ -18,17 +18,16 @@
 # Requirements: Powershell 3.0, IIS Setup with this project's template file,
 #               Must have ConfigManager console installed!
 #
-# Change Log:   Ver 2.4 - Added support to specify multiple TSadvertisment IDs so that we can see multiple deployments for a TS
+# Change Log:   Ver 2.5 - Fixed issue caused by 2.0 code that allowed for computers older than 24 hours to report. This would cause the information
+#                         in the columns to be wrong.
+#
+#               Ver 2.4 - Added support to specify multiple TSadvertisment IDs so that we can see multiple deployments for a TS
 #                       - Webpage now will let you know when there is not data being received from the query
 #               
 #               Ver 2.3 - Added support/parameter for MDM (Modern Driver Management)
 #                       - Tidied up some code
 #   
 #               Ver 2.2 - Fixed an issue where data was carrying over to the next computer 
-#
-#               Ver 2.2 - Fixed an issue where data was carrying over to the next computer 
-#
-#               Ver 2.1 - Fixed HTML headers issue caused by the resorting in Ver 2.0
 #
 #               Ver 2.1 - Fixed HTML headers issue caused by the resorting in Ver 2.0
 #
@@ -325,165 +324,162 @@ ForEach ($Computer in $Messages) #Loop through each computer
         $green = '<img src="images/checks/greenCheckMark_round.png" alt="Green Check Mark">' #Green is always the same so we can declare it here.
         $varHash = [ordered]@{} #hash table used for storing variables
         $DriverCount = 1 #Count used for cycling through driver steps
-        If (($Computer.Description -contains "The task sequence execution engine successfully completed a task sequence.") -AND ($Computer.Description -notcontains "The task sequence execution engine started execution of a task sequence."))
+        If ($Computer.MessageID -contains "11144")
             {
-                #we found a computer that the status messages are outside retrived hours (this is set in the initial parameters)
-                #We aren't going to process this. If we did it would mess up the display in the dynamic html
-                write-host "hi"
-                return
-            }
-        ForEach ($statmsg in $Computer) #Loop through each status message
-            {
-                $NameDuringImaging = $statmsg.System #Get the computer name
-                $VarCount = 1 #Count used for adding to name (this is used in the HTML to show what step we are on)
-                $ImageDuration = $null #Null out some variables between computers so we don't carry over unwanted data
-                $ImageCompleted = $null
-                $LastLog = $null
-                
-                ForEach ($step in $TSStepsNoDrivers) #Loop through each TS Step
-                    {
-                        $var =  "$($VarCount)" + ' - ' + $step #This sets the variable to include a number plus the name. Just for the html page
-                        If ($Statmsg.MessageID -eq "11144") { $ImageStarted = $statmsg."Date / Time"} #MessageID 11144 is the start of a task sequence
-                        ElseIf (($step -eq "Install Drivers") -AND ($MDM -eq $false)) #This ElseIf block is where we process our driver steps only if not using Modern Driver Management
-                            {    
-                                $RegExString = $ParRegex.match($Statmsg.Description).Groups[1].value #Gets the name of the step by looking at the value between the parenthesies.
-                                If ($TSDriverSteps -match $RegExString) #Gets the correct driver step by comparing the step we are in with the list of driver steps
-                                    {
-                                        If (($Statmsg.Description -like "The task sequence execution engine successfully completed the action*$($Step)*") -AND ($statmsg.Severity -eq "Informational"))
-                                            {
-                                                #Process if Driver step is successful
-                                                $var = "$($VarCount)" + ' - ' + "Install Drivers"
-                                                $text = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                                                $varHash.Add($var,'<a href=" " title="' + $text + '"><img src="images/checks/greenCheckMark_round.png" alt="Green Check Mark"></a>') #Adding text of the drivers just for a reference in the html
-                                                $LastLog = $statmsg."Date / Time"
-                                                $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                                            }
-                                        ElseIf (($Statmsg.Description -like "The task sequence execution engine failed executing the action*$($Step)*") -AND ($statmsg.Severity -eq "Error")) 
-                                            {
-                                                #Process if Driver step errors
-                                                $var = "$($VarCount)" + ' - ' + "Install Drivers"
-                                                $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                                                $varHash.Add($var,'<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>') #set pic to red and include error text
-                                                $LastLog = $statmsg."Date / Time"
-                                                $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                                            }
-                                        ElseIf ($DriverCount -eq $TSDriverSteps.Count) 
-                                            {
-                                                #Process if there are no driver packages for this computer in the TS
-                                                $var = "$($VarCount)" + ' - ' + "Install Drivers"
-                                                $text = "There was not a driver package available in the Task Sequence for this device"
-                                                $varHash.Add($var,'<a href=" " title="' + $text + '"><img src="images/checks/greyCheckMark_round.png" alt="Grey Check Mark"></a>') #Adding text of the drivers just for a reference in the html
-                                                $LastLog = $statmsg."Date / Time"
-                                                $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                                            }
-                                        else 
-                                            {
-                                                $DriverCount += 1
-                                            }
-                                    }                                            
-                            }
-                        ElseIf (($Statmsg.Description -like "The task sequence execution engine successfully completed the action*$($Step)*") -AND ($statmsg.Severity -eq "Informational")) 
-                            {
-                                #Processing all successful steps
-                                $varHash.Add($var,$green)
-                                $LastLog = $statmsg."Date / Time"
-                                $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                            }
-                        ElseIf (($Statmsg.Description -like "The task sequence execution engine failed executing the action*$($Step)*") -AND ($statmsg.Severity -eq "Error")) 
-                            {
-                                #Processing all error steps
-                                $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                                $varHash.Add($var,'<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>') #set pic to red and include error text
-                                $LastLog = $statmsg."Date / Time"
-                                $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                            }
-                        ElseIF (($Statmsg.Description -like "The task sequence execution engine skipped the action*$($Step)*") -AND ($statmsg.Severity -eq "Informational")) 
-                            {
-                                #Processing all skipped steps
-                                $skiptext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                                $varHash.Add($var,'<a href=" " title="' + $skiptext + '"><img src="images/checks/greyCheckMark_round.png" alt="Grey Check Mark"></a>') #set pic to grey and include error text
-                                $LastLog = $statmsg."Date / Time"
-                                $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
-                            }
-                        ElseIf (($Statmsg.MessageID -eq "11171") -or ($statmsg.MessageID -eq "11143")) #Task Sequence Completed Successfully
-                            {
-                                #Processing end of TS
-                                $varHash.Add('Exit Task Sequence',$green)
-                                $ImageCompleted = $statmsg."Date / Time"
-                                $LastLog = $statmsg."Date / Time"
-                                $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $ImageCompleted
-                            }
-                        ElseIf ($Statmsg.MessageID -eq "11141") #Failed Task Sequence
-                            {
-                                #Processing if the TS failed (If a TS step fails and is set to NOT continue on error)
-                                $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
-                                $varHash.Add('Exit Task Sequence','<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>') #set pic to red and include error text
-                                $ImageCompleted = $statmsg."Date / Time"
-                                $LastLog = $statmsg."Date / Time"
-                                $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $ImageCompleted
-                            }
-                        Else 
-                            {
-                                #We don't care about it!
-                            }
-                        $VarCount += 1 #increase our variable count
-                    }
-                
+                ForEach ($statmsg in $Computer) #Loop through each status message
+                {
+                    $NameDuringImaging = $statmsg.System #Get the computer name
+                    $VarCount = 1 #Count used for adding to name (this is used in the HTML to show what step we are on)
+                    $ImageDuration = $null #Null out some variables between computers so we don't carry over unwanted data
+                    $ImageCompleted = $null
+                    #$ImageStarted = $null
+                    $LastLog = $null
+                    
+                    ForEach ($step in $TSStepsNoDrivers) #Loop through each TS Step
+                        {
+                            $var =  "$($VarCount)" + ' - ' + $step #This sets the variable to include a number plus the name. Just for the html page
+                            If ($Statmsg.MessageID -eq "11144") { $ImageStarted = $statmsg."Date / Time"} #MessageID 11144 is the start of a task sequence
+                            ElseIf (($step -eq "Install Drivers") -AND ($MDM -eq $false)) #This ElseIf block is where we process our driver steps only if not using Modern Driver Management
+                                {    
+                                    $RegExString = $ParRegex.match($Statmsg.Description).Groups[1].value #Gets the name of the step by looking at the value between the parenthesies.
+                                    If ($TSDriverSteps -match $RegExString) #Gets the correct driver step by comparing the step we are in with the list of driver steps
+                                        {
+                                            If (($Statmsg.Description -like "The task sequence execution engine successfully completed the action*$($Step)*") -AND ($statmsg.Severity -eq "Informational"))
+                                                {
+                                                    #Process if Driver step is successful
+                                                    $var = "$($VarCount)" + ' - ' + "Install Drivers"
+                                                    $text = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
+                                                    $varHash.Add($var,'<a href=" " title="' + $text + '"><img src="images/checks/greenCheckMark_round.png" alt="Green Check Mark"></a>')  #Adding text of the drivers just for a reference in the html
+                                                    $LastLog = $statmsg."Date / Time"
+                                                    $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
+                                                }
+                                            ElseIf (($Statmsg.Description -like "The task sequence execution engine failed executing the action*$($Step)*") -AND ($statmsg.Severity -eq "Error")) 
+                                                {
+                                                    #Process if Driver step errors
+                                                    $var = "$($VarCount)" + ' - ' + "Install Drivers"
+                                                    $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
+                                                    $varHash.Add($var,'<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>') #set pic to red and include error text
+                                                    $LastLog = $statmsg."Date / Time"
+                                                    $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
+                                                }
+                                            ElseIf ($DriverCount -eq $TSDriverSteps.Count) 
+                                                {
+                                                    #Process if there are no driver packages for this computer in the TS
+                                                    $var = "$($VarCount)" + ' - ' + "Install Drivers"
+                                                    $text = "There was not a driver package available in the Task Sequence for this device"
+                                                    $varHash.Add($var,'<a href=" " title="' + $text + '"><img src="images/checks/greyCheckMark_round.png" alt="Grey Check Mark"></a>') #Adding text of the drivers just for a reference in the html
+                                                    $LastLog = $statmsg."Date / Time"
+                                                    $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
+                                                }
+                                            else 
+                                                {
+                                                    $DriverCount += 1
+                                                }
+                                        }                                            
+                                }
+                            ElseIf (($Statmsg.Description -like "The task sequence execution engine successfully completed the action*$($Step)*") -AND ($statmsg.Severity -eq "Informational")) 
+                                {
+                                    #Processing all successful steps
+                                    $varHash.Add($var,$green) 
+                                    $LastLog = $statmsg."Date / Time"
+                                    $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
+                                }
+                            ElseIf (($Statmsg.Description -like "The task sequence execution engine failed executing the action*$($Step)*") -AND ($statmsg.Severity -eq "Error")) 
+                                {
+                                    #Processing all error steps
+                                    $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
+                                    $varHash.Add($var,'<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>') #set pic to red and include error text
+                                    $LastLog = $statmsg."Date / Time"
+                                    $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
+                                }
+                            ElseIF (($Statmsg.Description -like "The task sequence execution engine skipped the action*$($Step)*") -AND ($statmsg.Severity -eq "Informational")) 
+                                {
+                                    #Processing all skipped steps
+                                    $skiptext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
+                                    $varHash.Add($var,'<a href=" " title="' + $skiptext + '"><img src="images/checks/greyCheckMark_round.png" alt="Grey Check Mark"></a>') #set pic to grey and include error text
+                                    $LastLog = $statmsg."Date / Time"
+                                    $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
+                                }
+                            ElseIf (($Statmsg.MessageID -eq "11171") -or ($statmsg.MessageID -eq "11143")) #Task Sequence Completed Successfully
+                                {
+                                    #Processing end of TS
+                                    $varHash.Add('Exit Task Sequence',$green)
+                                    $ImageCompleted = $statmsg."Date / Time"
+                                    $LastLog = $statmsg."Date / Time"
+                                    $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $ImageCompleted
+                                }
+                            ElseIf ($Statmsg.MessageID -eq "11141") #Failed Task Sequence
+                                {
+                                    #Processing if the TS failed (If a TS step fails and is set to NOT continue on error)
+                                    $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
+                                    $varHash.Add('Exit Task Sequence','<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>') #set pic to red and include error text
+                                    $ImageCompleted = $statmsg."Date / Time"
+                                    $LastLog = $statmsg."Date / Time"
+                                    $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $ImageCompleted
+                                }
+                            Else 
+                                {
+                                    #We don't care about it!
+                                }
+                            $VarCount += 1 #increase our variable count
+                        }
+                    
+        
     
+            }
+                        #Build our HTML Table
+                If ($tablecount -eq 1) #This ensures that our html table headers are created only on the first pass through
+                {
+                    $table = '
+                    <thead>
+                        <tr class = "row100 head">
+                            <th class="column100 column2" data-column="column2">Image Started</th>
+                            <th class="column100 column3" data-column="column3">Image Completed</th>
+                            <th class="column100 column4" data-column="column4">Image Duration</th>
+                            <th class="column100 column5" data-column="column5">Last Log</th>
+                            <th class="column100 column6" data-column="column6">Name During Imaging</th>'
+                    $column = 7 #hardcoded number. No need to change this as it is used for building the table
+                    ForEach ($item in $TSStepsNoDrivers)
+                        {
+                            $item = "$($stepscount)" + ' - ' + $item
+                            $String = '<th class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + $item + '</th>'
+                            $table += $String
+                            $column += 1
+                            $stepscount += 1
+                        }
+                    $table += '<th class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + "Exit Task Sequence" + '</th>'  #Manually add this as the last step
+                    $table += '</tr></thead><tbody>' #Manually add this to close out the headers and start the tbody
+                    $tablecount += 1
+                }
 
+            #Here we process each row (computer data from results above) to the table
+            $table += '<tr class="row100">
+                <td class="column100 column2" data-column="column2">'+ $ImageStarted +'</td>
+                <td class="column100 column3" data-column="column3">'+ $ImageCompleted +'</td>
+                <td class="column100 column4" data-column="column4">'+ $ImageDuration +'</td>
+                <td class="column100 column5" data-column="column5">'+ $LastLog +'</td>
+                <td class="column100 column6" data-column="column6">'+ $NameDuringImaging +'</td>'
+            $column = 7 #hardcoded number. No need to change this as it is used for building the table
+            ForEach ($item in $varHash.GetEnumerator())
+                {
+                    $String = '<td class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + $item.value
+                    $table += $String
+                    $column += 1
+                }
+            $table += '</tr>'
             }
-        #Build our HTML Table
-        If ($tablecount -eq 1) #This ensures that our html table headers are created only on the first pass through
-            {
-                $table = '
-                <thead>
-                    <tr class = "row100 head">
-                        <th class="column100 column2" data-column="column2">Image Started</th>
-                        <th class="column100 column3" data-column="column3">Image Completed</th>
-                        <th class="column100 column4" data-column="column4">Image Duration</th>
-                        <th class="column100 column5" data-column="column5">Last Log</th>
-                        <th class="column100 column6" data-column="column6">Name During Imaging</th>'
-                $column = 7 #hardcoded number. No need to change this as it is used for building the table
-                ForEach ($item in $TSStepsNoDrivers)
-                    {
-                        $item = "$($stepscount)" + ' - ' + $item
-                        $String = '<th class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + $item + '</th>'
-                        $table += $String
-                        $column += 1
-                        $stepscount += 1
-                    }
-                $table += '<th class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + "Exit Task Sequence" + '</th>'  #Manually add this as the last step
-                $table += '</tr></thead><tbody>' #Manually add this to close out the headers and start the tbody
-                $tablecount += 1
-            }
-
-        #Here we process each row (computer data from results above) to the table
-        $table += '<tr class="row100">
-            <td class="column100 column2" data-column="column2">'+ $ImageStarted +'</td>
-            <td class="column100 column3" data-column="column3">'+ $ImageCompleted +'</td>
-            <td class="column100 column4" data-column="column4">'+ $ImageDuration +'</td>
-            <td class="column100 column5" data-column="column5">'+ $LastLog +'</td>
-            <td class="column100 column6" data-column="column6">'+ $NameDuringImaging +'</td>'
-        $column = 7 #hardcoded number. No need to change this as it is used for building the table
-        ForEach ($item in $varHash.GetEnumerator())
-            {
-                $String = '<td class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + $item.value
-                $table += $String
-                $column += 1
-            }
-        $table += '</tr>'
     }
     
         If ($ImageStarted -ne $null) #This if statement will allow for only relevant TS status messages 
             {
                 #Build the array. The HTML variable is used in the $template file. 
-                $html = $html += $table
+                $html = $html += $table 
             }
 
 #These if statements will process if we had an issue or if no devices were found to be imaging.
 If (($html.count -eq 0) -and ($messages.Name.Count -ge 1)) 
     {
-        $html += "<h2 style='text-align: center;'><strong>At least one device was detected as staring the Task Sequence but there is an issue sorting the steps.</strong></h2>"
+        $html += "<h2 style='text-align: center;'><strong>At least one device was detected as starting the Task Sequence but there is an issue sorting the steps.</strong></h2>"
     }
 elseif (($html.count -eq 0) -and ($messages.Name.Count -eq 0)) 
     {
