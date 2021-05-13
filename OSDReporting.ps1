@@ -3,7 +3,7 @@
 #
 # Version : 2.6
 # Created : 02/25/2020
-# Modified : 05/05/2020
+# Modified : 05/13/2020
 #
 # Purpose : This script will query the ConfigMgr database for Task Sequence Status Messages.
 #           The output is parsed and built into a webpage.
@@ -46,7 +46,6 @@
 #               Ver 1.0 - Initial Release
 #
 #############################################################################
-
 
 [CmdletBinding(SupportsShouldProcess=$True)]
     param
@@ -483,22 +482,22 @@ ForEach ($Computer in $Messages) #Loop through each computer
             #Do some logic to convert our variables into date/time for the correct culture
             If ($ImageStarted)
                 {
-                    [datetime]$date = Get-Date $ImageStarted -Format (Get-Culture).DateTimeFormat.ShortDatePattern
-                    [datetime]$time = (Get-Date $ImageStarted -Format (Get-Culture).DateTimeFormat.LongTimePattern)
-                    [string]$ImageStarted = [string]$date.ToShortDateString() + " " + [string]$time.ToLongTimeString()
+                    [string]$date = Get-Date $ImageStarted -Format (Get-Culture).DateTimeFormat.ShortDatePattern
+                    [string]$time = Get-Date $ImageStarted -Format (Get-Culture).DateTimeFormat.LongTimePattern
+                    [string]$ImageStarted = $date + " " + $time
                 }
             If ($ImageCompleted)
                 {
                     
-                    [datetime]$date = Get-Date $ImageCompleted -Format (Get-Culture).DateTimeFormat.ShortDatePattern
-                    [datetime]$time = (Get-Date $ImageCompleted -Format (Get-Culture).DateTimeFormat.LongTimePattern)
-                    [string]$ImageCompleted = [string]$date.ToShortDateString() + " " + [string]$time.ToLongTimeString()
+                    [string]$date = Get-Date $ImageCompleted -Format (Get-Culture).DateTimeFormat.ShortDatePattern
+                    [string]$time = Get-Date $ImageCompleted -Format (Get-Culture).DateTimeFormat.LongTimePattern
+                    [string]$ImageCompleted = $date + " " + $time
                 }
             If ($LastLog)
                 {
-                    [datetime]$date = Get-Date $LastLog -Format (Get-Culture).DateTimeFormat.ShortDatePattern
-                    [datetime]$time = (Get-Date $LastLog -Format (Get-Culture).DateTimeFormat.LongTimePattern)
-                    [string]$LastLog = [string]$date.ToShortDateString() + " " + [string]$time.ToLongTimeString()
+                    [string]$date = Get-Date $LastLog -Format (Get-Culture).DateTimeFormat.ShortDatePattern
+                    [string]$time = Get-Date $LastLog -Format (Get-Culture).DateTimeFormat.LongTimePattern
+                    [string]$LastLog = $date + " " + $time
                 }
 
 
