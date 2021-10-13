@@ -1,9 +1,9 @@
 #############################################################################
 # Author  : Tyler Cox
 #
-# Version : 2.5
+# Version : 2.6.1
 # Created : 02/25/2020
-# Modified : 04/13/2021
+# Modified : 06/11/2020
 #
 # Purpose : This script will query the ConfigMgr database for Task Sequence Status Messages.
 #           The output is parsed and built into a webpage.
@@ -18,7 +18,12 @@
 # Requirements: Powershell 3.0, IIS Setup with this project's template file,
 #               Must have ConfigManager console installed!
 #
-# Change Log:   Ver 2.5 - Fixed issue caused by 2.0 code that allowed for computers older than 24 hours to report. This would cause the information
+# Change Log:   Ver 2.6 - Fixed issue where the "Task Sequence Error" (for the final column) was shown in the wrong column
+#                       - Added logic to change Date/Time based on culture
+#                       - Added logic to get the UTC offset for the SQl query
+#                       - Fixed issue where the TimeinHours variable was not working in the SQL query
+#
+#               Ver 2.5 - Fixed issue caused by 2.0 code that allowed for computers older than 24 hours to report. This would cause the information
 #                         in the columns to be wrong.
 #
 #               Ver 2.4 - Added support to specify multiple TSadvertisment IDs so that we can see multiple deployments for a TS
@@ -49,7 +54,7 @@
         [Parameter(Mandatory=$False, HelpMessage="The name of the computer to retrieve status message for")]
             [string]$ComputerName,
         [Parameter(Mandatory=$False, HelpMessage="The number of hours past in which to retrieve status messages")]
-            [int]$TimeInHours = "36",
+            [int]$TimeInHours = "24",
         [Parameter(Mandatory=$False)]
             [switch]$CSV,
         [Parameter(Mandatory=$False)]
@@ -70,6 +75,7 @@
             [string]$MDM = $False
         )
  
+
 #Found that this file is in a different path based on OS/console version
 If (Test-Path ((Split-Path $env:SMS_ADMIN_UI_PATH) + "\X64\system32\smsmsgs"))
     {
@@ -80,15 +86,16 @@ ElseIf (Test-Path ($ENV:SMS_ADMIN_UI_PATH + '\00000409'))
         $SMSMSGSLocation =  ($ENV:SMS_ADMIN_UI_PATH + '\00000409')
     }
 
+
 # Function to get the date difference
 Function Get-DateDifference
     {
         param
         (
             [Parameter(Mandatory=$true, HelpMessage="The start date")]
-                $StartDate,
+                [datetime]$StartDate,
             [Parameter(Mandatory=$true, HelpMessage="The end date")]
-                $EndDate 
+                [datetime]$EndDate 
         )
         $TimeDiff = New-TimeSpan -Start $StartDate -End $EndDate
         if ($TimeDiff.Seconds -lt 0) {
@@ -174,6 +181,10 @@ ForEach ($AdvID in $TSAdvertisementID)
     }
 
 
+#Let's do some logic to pull our UTC offset
+[datetime]$UTCtime = (Get-Date).ToUniversalTime()
+[datetime]$LocalDT = ([datetime]$UTCtime).ToLocalTime()
+$HoursUTCoffset = ($LocalDT.hour - $UTCtime.hour)
 
 
 # Define the SQl query
@@ -196,7 +207,7 @@ smsgs.MessageID, smsgs.Severity, smsgs.MessageType, smsgs.ModuleName,modNames.Ms
 smsgs.MachineName, smsgs.Time, smsgs.SiteCode, smwis.InsString1,
 smwis.InsString2, smwis.InsString3, smwis.InsString4, smwis.InsString5,
 smwis.InsString6, smwis.InsString7, smwis.InsString8, smwis.InsString9,
-smwis.InsString10, v_StatMsgAttributes.*, DATEDIFF(hour,dateadd(hh,-5,smsgs.Time),GETDATE()) as DateDiffer
+smwis.InsString10, v_StatMsgAttributes.*, DATEDIFF(hour,dateadd(hh," + $HoursUTCoffset + ",smsgs.Time),GETDATE()) as DateDiffer
 from v_StatusMessage smsgs
 join v_StatMsgWithInsStrings smwis on smsgs.RecordID = smwis.RecordID
 join v_StatMsgModuleNames modNames on smsgs.ModuleName = modNames.ModuleName
@@ -204,7 +215,7 @@ join v_StatMsgAttributes on v_StatMsgAttributes.RecordID = smwis.RecordID
 where (smsgs.Component = 'Task Sequence Engine' or smsgs.Component = 'Task Sequence Action')
 and v_StatMsgAttributes.AttributeID = 401 
 and (" + $TSAdvstring + ")
-and DATEDIFF(hour,smsgs.Time,GETDATE()) < '24'
+and DATEDIFF(hour,smsgs.Time,GETDATE()) < " + $TimeInHours + "
 Order by smsgs.Time DESC
 "
 
@@ -265,12 +276,18 @@ foreach ($Row in $Table.Rows)
             InsString10 = $Row.InsString10
             }
         $Message = Get-StatusMessage @params
+
+        #Tell Powershell that our Date/Time is UTC
+        $UTCDateTime = [datetime]::SpecifyKind( $Row.time, 'UTC' )
+        #Convert it to Local Time
+        [datetime]$LocalDateTime = ([datetime]$UTCDateTime).ToLocalTime()
+        
  
         $StatusMessage = New-Object psobject
         Add-Member -InputObject $StatusMessage -Name Severity -MemberType NoteProperty -Value $Row.SeverityName
         Add-Member -InputObject $StatusMessage -Name Type -MemberType NoteProperty -Value $Row.Type
         Add-Member -InputObject $StatusMessage -Name SiteCode -MemberType NoteProperty -Value $Row.SiteCode
-        Add-Member -InputObject $StatusMessage -Name "Date / Time" -MemberType NoteProperty -Value $Row.Time.AddHours(-5)
+        Add-Member -InputObject $StatusMessage -Name "Date / Time" -MemberType NoteProperty -Value $LocalDateTime
         Add-Member -InputObject $StatusMessage -Name System -MemberType NoteProperty -Value $Row.MachineName
         Add-Member -InputObject $StatusMessage -Name Component -MemberType NoteProperty -Value $Row.Component
         Add-Member -InputObject $StatusMessage -Name Module -MemberType NoteProperty -Value $Row.ModuleName
@@ -392,7 +409,7 @@ ForEach ($Computer in $Messages) #Loop through each computer
                                     $LastLog = $statmsg."Date / Time"
                                     $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
                                 }
-                            ElseIF (($Statmsg.Description -like "The task sequence execution engine skipped the action*$($Step)*") -AND ($statmsg.Severity -eq "Informational")) 
+                            ElseIf (($Statmsg.Description -like "The task sequence execution engine skipped the action*$($Step)*") -AND ($statmsg.Severity -eq "Informational")) 
                                 {
                                     #Processing all skipped steps
                                     $skiptext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
@@ -411,6 +428,16 @@ ForEach ($Computer in $Messages) #Loop through each computer
                             ElseIf ($Statmsg.MessageID -eq "11141") #Failed Task Sequence
                                 {
                                     #Processing if the TS failed (If a TS step fails and is set to NOT continue on error)
+                                    $index = ([array]::indexof($TSStepsNoDrivers,$step) + 1)
+                                    ForEach($miniStep in $TSStepsNoDrivers)
+                                        {
+                                            If ([array]::indexof($TSStepsNoDrivers,$ministep) -ge $index)
+                                                {
+                                                    $miniIndex = ([array]::indexof($TSStepsNoDrivers,$ministep) + 1)
+                                                    $var =  "$($miniIndex)" + ' - ' + $ministep #This sets the variable to include a number plus the name. Just for the html page
+                                                    $varHash.Add($var," ") #enter blank entries in our hash table. This is so our Failed TS step falls in the correct column.
+                                                }
+                                        }
                                     $errortext = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
                                     $varHash.Add('Exit Task Sequence','<a href=" " title="' + $errortext + '"><img src="images/checks/redCheckMark_round.png" alt="Red Check Mark"></a>') #set pic to red and include error text
                                     $ImageCompleted = $statmsg."Date / Time"
@@ -427,7 +454,7 @@ ForEach ($Computer in $Messages) #Loop through each computer
         
     
             }
-                        #Build our HTML Table
+                #Build our HTML Table
                 If ($tablecount -eq 1) #This ensures that our html table headers are created only on the first pass through
                 {
                     $table = '
@@ -451,6 +478,34 @@ ForEach ($Computer in $Messages) #Loop through each computer
                     $table += '</tr></thead><tbody>' #Manually add this to close out the headers and start the tbody
                     $tablecount += 1
                 }
+
+
+            #Do some logic to convert our variables into date/time for the correct culture
+            If ($ImageStarted)
+                {
+                    $CultureDateTimeFormat = (Get-Culture).DateTimeFormat
+                    $DateFormat = $CultureDateTimeFormat.ShortDatePattern
+                    $TimeFormat = $CultureDateTimeFormat.LongTimePattern
+                    $DateTimeFormat = "$DateFormat $TimeFormat"
+                    $ImageStarted = [DateTime]::ParseExact($ImageStarted.ToSTring(),$DateTimeFormat,[System.Globalization.DateTimeFormatInfo]::InvariantInfo,[System.Globalization.DateTimeStyles]::None)
+                }
+            If ($ImageCompleted)
+                { 
+                    $CultureDateTimeFormat = (Get-Culture).DateTimeFormat
+                    $DateFormat = $CultureDateTimeFormat.ShortDatePattern
+                    $TimeFormat = $CultureDateTimeFormat.LongTimePattern
+                    $DateTimeFormat = "$DateFormat $TimeFormat"
+                    $ImageCompleted = [DateTime]::ParseExact($ImageCompleted.ToSTring(),$DateTimeFormat,[System.Globalization.DateTimeFormatInfo]::InvariantInfo,[System.Globalization.DateTimeStyles]::None)
+                }
+            If ($LastLog)
+                {
+                    $CultureDateTimeFormat = (Get-Culture).DateTimeFormat
+                    $DateFormat = $CultureDateTimeFormat.ShortDatePattern
+                    $TimeFormat = $CultureDateTimeFormat.LongTimePattern
+                    $DateTimeFormat = "$DateFormat $TimeFormat"
+                    $LastLog = [DateTime]::ParseExact($LastLog.ToSTring(),$DateTimeFormat,[System.Globalization.DateTimeFormatInfo]::InvariantInfo,[System.Globalization.DateTimeStyles]::None)
+                }
+
 
             #Here we process each row (computer data from results above) to the table
             $table += '<tr class="row100">
@@ -479,7 +534,7 @@ ForEach ($Computer in $Messages) #Loop through each computer
 #These if statements will process if we had an issue or if no devices were found to be imaging.
 If (($html.count -eq 0) -and ($messages.Name.Count -ge 1)) 
     {
-        $html += "<h2 style='text-align: center;'><strong>At least one device was detected as starting the Task Sequence but there is an issue sorting the steps.</strong></h2>"
+        $html += "<h2 style='text-align: center;'><strong>At least one device was detected as staring the Task Sequence but there is an issue sorting the steps.</strong></h2>"
     }
 elseif (($html.count -eq 0) -and ($messages.Name.Count -eq 0)) 
     {
@@ -489,4 +544,4 @@ elseif (($html.count -eq 0) -and ($messages.Name.Count -eq 0))
 #Get the template file
 $template = (Get-Content -Path ($IISPath + "\template.html") -raw)
 #Place variables and new $html into the template file and rename it as index.html
-Invoke-Expression "@`"`r`n$template`r`n`"@" | Set-Content -Path ($IISPath + "\index.html")
+Invoke-Expression "@`"`r`n$template`r`n`"@" | Set-Content -Path ($IISPath + "\index.html") 
