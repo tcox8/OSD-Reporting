@@ -534,7 +534,7 @@ ForEach ($Computer in $Messages) #Loop through each computer
 #These if statements will process if we had an issue or if no devices were found to be imaging.
 If (($html.count -eq 0) -and ($messages.Name.Count -ge 1)) 
     {
-        $html += "<h2 style='text-align: center;'><strong>At least one device was detected as staring the Task Sequence but there is an issue sorting the steps.</strong></h2>"
+        $html += "<h2 style='text-align: center;'><strong>At least one device was detected as starting the Task Sequence but there is an issue sorting the steps.</strong></h2>"
     }
 elseif (($html.count -eq 0) -and ($messages.Name.Count -eq 0)) 
     {
