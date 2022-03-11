@@ -1,9 +1,9 @@
 #############################################################################
 # Author  : Tyler Cox
 #
-# Version : 2.6.1
+# Version : 2.6.2
 # Created : 02/25/2020
-# Modified : 06/11/2020
+# Modified : 03/11/2022
 #
 # Purpose : This script will query the ConfigMgr database for Task Sequence Status Messages.
 #           The output is parsed and built into a webpage.
@@ -22,6 +22,7 @@
 #                       - Added logic to change Date/Time based on culture
 #                       - Added logic to get the UTC offset for the SQl query
 #                       - Fixed issue where the TimeinHours variable was not working in the SQL query
+#                       - Added logic to include Task Sequences ran from OS (Special thanks to PCL-CrisKolkman for his work on this)
 #
 #               Ver 2.5 - Fixed issue caused by 2.0 code that allowed for computers older than 24 hours to report. This would cause the information
 #                         in the columns to be wrong.
@@ -341,7 +342,7 @@ ForEach ($Computer in $Messages) #Loop through each computer
         $green = '<img src="images/checks/greenCheckMark_round.png" alt="Green Check Mark">' #Green is always the same so we can declare it here.
         $varHash = [ordered]@{} #hash table used for storing variables
         $DriverCount = 1 #Count used for cycling through driver steps
-        If ($Computer.MessageID -contains "11144")
+        If ($Computer.MessageID -contains "11144" -or $Computer.MessageID -eq "11140")
             {
                 ForEach ($statmsg in $Computer) #Loop through each status message
                 {
@@ -355,7 +356,7 @@ ForEach ($Computer in $Messages) #Loop through each computer
                     ForEach ($step in $TSStepsNoDrivers) #Loop through each TS Step
                         {
                             $var =  "$($VarCount)" + ' - ' + $step #This sets the variable to include a number plus the name. Just for the html page
-                            If ($Statmsg.MessageID -eq "11144") { $ImageStarted = $statmsg."Date / Time"} #MessageID 11144 is the start of a task sequence
+                            If ($Statmsg.MessageID -eq "11144" -or $Computer.MessageID -eq "11140") { $ImageStarted = $statmsg."Date / Time"} #MessageID 11144 is the start of a task sequence, 11140 is start if in OS/Software Center
                             ElseIf (($step -eq "Install Drivers") -AND ($MDM -eq $false)) #This ElseIf block is where we process our driver steps only if not using Modern Driver Management
                                 {    
                                     $RegExString = $ParRegex.match($Statmsg.Description).Groups[1].value #Gets the name of the step by looking at the value between the parenthesies.
