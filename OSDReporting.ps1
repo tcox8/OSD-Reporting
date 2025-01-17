@@ -1,9 +1,9 @@
 #############################################################################
 # Author  : Tyler Cox
 #
-# Version : 2.6.2
+# Version : 2.6.1
 # Created : 02/25/2020
-# Modified : 03/11/2022
+# Modified : 01/17/2025
 #
 # Purpose : This script will query the ConfigMgr database for Task Sequence Status Messages.
 #           The output is parsed and built into a webpage.
@@ -18,11 +18,12 @@
 # Requirements: Powershell 3.0, IIS Setup with this project's template file,
 #               Must have ConfigManager console installed!
 #
-# Change Log:   Ver 2.6 - Fixed issue where the "Task Sequence Error" (for the final column) was shown in the wrong column
+# Change Log:   Ver 2.7 - Fixed issue with DLL files on later builds of SCCM. Thanks to bao86 for the find and fix! https://github.com/tcox8/OSD-Reporting/issues/21#issuecomment-2596190274
+#
+#               Ver 2.6 - Fixed issue where the "Task Sequence Error" (for the final column) was shown in the wrong column
 #                       - Added logic to change Date/Time based on culture
 #                       - Added logic to get the UTC offset for the SQl query
 #                       - Fixed issue where the TimeinHours variable was not working in the SQL query
-#                       - Added logic to include Task Sequences ran from OS (Special thanks to PCL-CrisKolkman for his work on this)
 #
 #               Ver 2.5 - Fixed issue caused by 2.0 code that allowed for computers older than 24 hours to report. This would cause the information
 #                         in the columns to be wrong.
@@ -88,6 +89,9 @@ ElseIf (Test-Path ($ENV:SMS_ADMIN_UI_PATH + '\00000409'))
     }
 
 
+
+
+
 # Function to get the date difference
 Function Get-DateDifference
     {
@@ -114,50 +118,61 @@ Function Get-DateDifference
 
 # Function to get the status message description
 function Get-StatusMessage {
-param (
-    $iMessageID,
-    [ValidateSet("srvmsgs.dll","provmsgs.dll","climsgs.dll")]$DLL,
-    [ValidateSet("Informational","Warning","Error")]$Severity,
-    $InsString1,
-    $InsString2,
-    $InsString3,
-    $InsString4,
-    $InsString5,
-    $InsString6,
-    $InsString7,
-    $InsString8,
-    $InsString9,
-    $InsString10
-      )
- 
-#Load DLLs. These contain the status message query text
-if ($DLL -eq "srvmsgs.dll")
-    {$stringPathToDLL = "$SMSMSGSLocation\srvmsgs.dll"}
-if ($DLL -eq "provmsgs.dll")
-    {$stringPathToDLL = "$SMSMSGSLocation\provmsgs.dll"}
-if ($DLL -eq "climsgs.dll")
-    {$stringPathToDLL = "$SMSMSGSLocation\climsgs.dll"}
- 
-#Load Status Message Lookup DLL into memory and get pointer to memory
-$ptrFoo = $Win32LoadLibrary::LoadLibrary($stringPathToDLL.ToString())
-$ptrModule = $Win32GetModuleHandle::GetModuleHandle($stringPathToDLL.ToString()) 
- 
-if ($Severity -eq "Informational")
-    {$code = 1073741824}
-if ($Severity -eq "Warning")
-    {$code = 2147483648}
-if ($Severity -eq "Error")
-    {$code = 3221225472}
- 
-$result = $Win32FormatMessage::FormatMessage($flags, $ptrModule, $Code -bor $iMessageID, 0, $stringOutput, $sizeOfBuffer, $stringArrayInput)
-if ($result -gt 0)
-    {
-        # Add insert strings to message
-        $objMessage = New-Object System.Object
-        $objMessage | Add-Member -type NoteProperty -name MessageString -value $stringOutput.ToString().Replace("%11","").Replace("%12","").Replace("%3%4%5%6%7%8%9%10","").Replace("%1",$InsString1).Replace("%2",$InsString2).Replace("%3",$InsString3).Replace("%4",$InsString4).Replace("%5",$InsString5).Replace("%6",$InsString6).Replace("%7",$InsString7).Replace("%8",$InsString8).Replace("%9",$InsString9).Replace("%10",$InsString10)
+    param (
+        $iMessageID,
+        [ValidateSet("srvmsgs.dll","provmsgs.dll","climsgs.dll")]$DLL,
+        [ValidateSet("Informational","Warning","Error")]$Severity,
+        $InsString1,
+        $InsString2,
+        $InsString3,
+        $InsString4,
+        $InsString5,
+        $InsString6,
+        $InsString7,
+        $InsString8,
+        $InsString9,
+        $InsString10
+        )
+    
+
+    <#    
+    #Load DLLs. These contain the status message query text
+    if ($DLL -eq "srvmsgs.dll")
+        {$stringPathToDLL = "$SMSMSGSLocation\srvmsgs.dll"}
+    if ($DLL -eq "provmsgs.dll")
+        {$stringPathToDLL = "$SMSMSGSLocation\provmsgs.dll"}
+    if ($DLL -eq "climsgs.dll")
+        {$stringPathToDLL = "$SMSMSGSLocation\climsgs.dll"}
+        #>
+
+    [string]$CMInstallDir = (Get-ItemProperty HKLM:\SOFTWARE\Microsoft\SMS\Identification).'Installation Directory'
+
+    switch ($DLL){
+    'climsgs.dll'{$stringPathToDLL = "$CMInstallDir\bin\X64\system32\smsmsgs\climsgs.dll"}
+    'provmsgs.dll'{$stringPathToDLL = "$CMInstallDir\bin\X64\system32\smsmsgs\provmsgs.dll"}
+    'srvmsgs.dll'{$stringPathToDLL = "$CMInstallDir\bin\X64\system32\smsmsgs\srvmsgs.dll"}
     }
-$objMessage
-}
+    
+    #Load Status Message Lookup DLL into memory and get pointer to memory
+    $ptrFoo = $Win32LoadLibrary::LoadLibrary($stringPathToDLL.ToString())
+    $ptrModule = $Win32GetModuleHandle::GetModuleHandle($stringPathToDLL.ToString()) 
+    
+    if ($Severity -eq "Informational")
+        {$code = 1073741824}
+    if ($Severity -eq "Warning")
+        {$code = 2147483648}
+    if ($Severity -eq "Error")
+        {$code = 3221225472}
+    
+    $result = $Win32FormatMessage::FormatMessage($flags, $ptrModule, $Code -bor $iMessageID, 0, $stringOutput, $sizeOfBuffer, $stringArrayInput)
+    if ($result -gt 0)
+        {
+            # Add insert strings to message
+            $objMessage = New-Object System.Object
+            $objMessage | Add-Member -type NoteProperty -name MessageString -value $stringOutput.ToString().Replace("%11","").Replace("%12","").Replace("%3%4%5%6%7%8%9%10","").Replace("%1",$InsString1).Replace("%2",$InsString2).Replace("%3",$InsString3).Replace("%4",$InsString4).Replace("%5",$InsString5).Replace("%6",$InsString6).Replace("%7",$InsString7).Replace("%8",$InsString8).Replace("%9",$InsString9).Replace("%10",$InsString10)
+        }
+    $objMessage
+}#EndFunc Get-StatusMessage
  
 # Open a database connection
 $connectionString = "Server=$SQLServer;Database=$database;Integrated Security=SSPI;"
@@ -216,7 +231,7 @@ join v_StatMsgAttributes on v_StatMsgAttributes.RecordID = smwis.RecordID
 where (smsgs.Component = 'Task Sequence Engine' or smsgs.Component = 'Task Sequence Action')
 and v_StatMsgAttributes.AttributeID = 401 
 and (" + $TSAdvstring + ")
-and DATEDIFF(hour,smsgs.Time,GETDATE()) < " + $TimeInHours + "
+and DATEDIFF(hour,smsgs.Time,GETDATE()) < " + 300 + "
 Order by smsgs.Time DESC
 "
 
@@ -316,17 +331,22 @@ Set-Location "$($SiteCode.Name):"
 
 #Setup some variables
 $TSSteps = (Get-CMTaskSequenceStep -TaskSequenceID $TaskSequenceID) | Where-Object {$_.Enabled -eq 'False'} | Select-Object Name #This gets all of the steps for a task sequence if they are enabled
+$TSSteps = [System.Collections.ArrayList]($TSSteps.Name)
 If ($MDM -eq $false) #If not using Modern Driver Managment
     {
         $TSDriverSteps = (Get-CMTaskSequenceStepApplyDriverPackage -TaskSequenceId $TaskSequenceID) | Select-Object Name #This gets all of the driver install steps
-        $DriverIndexStart = $TSDriverSteps[0].name #Get the name of the first step in the list of Driver steps
-        $index = $TSSteps.Name.IndexOf($DriverIndexStart)#Get the index (Start position) of the first driver step in the task sequence
-        $TSStepsNoDrivers = Compare-Object -ReferenceObject $TSSteps.Name -DifferenceObject $TSDriverSteps.Name -PassThru #Compare the full task sequence step list and the driver steps. Gets all that are not driver steps.
-        $TSStepsNoDrivers = $TSStepsNoDrivers[0..($index -1)] + "Install Drivers" + $TSStepsNoDrivers[$index..($TSStepsNoDrivers.Length -1)] #Rebuilds the arrays to replace the driver steps with one step lableed "Install driver"
+        $TSDriverSteps = [System.Collections.ArrayList]($TSDriverSteps.Name)
+        $DriverIndexStart = $TSDriverSteps[0] #Get the name of the first step in the list of Driver steps
+        $index = $TSSteps.IndexOf($DriverIndexStart)#Get the index (Start position) of the first driver step in the task sequence
+        #$TSStepsNoDrivers = Compare-Object -ReferenceObject $TSSteps.Name -DifferenceObject $TSDriverSteps.Name -PassThru #Compare the full task sequence step list and the driver steps. Gets all that are not driver steps.
+        ForEach ($step in $TSDriverSteps) { $TSSteps.Remove($step) } #This will remove all the driver steps from the Task Sequence steps
+        #$TSStepsNoDrivers = $TSStepsNoDrivers[0..($index -1)] + "Install Drivers" + $TSStepsNoDrivers[$index..($TSStepsNoDrivers.Length -1)] #Rebuilds the arrays to replace the driver steps with one step lableed "Install driver"
+        $TSSteps = $TSSteps[0..($index -1)] + "Install Drivers" + $TSSteps[$index..($TSSteps.count -1)]
     }
 elseif ($MDM -eq $True)
     {
-        $TSStepsNoDrivers = $TSSteps #If using Modern Driver Management, no need to process all the driver steps and can just consider all the steps good as is
+        #$TSStepsNoDrivers = $TSSteps #If using Modern Driver Management, no need to process all the driver steps and can just consider all the steps good as is
+        #No reason to process now with the changes
     }
 [regex]$ParRegex = "\((.*?)\)" #RegEx used later
 $Script:LastLog = $null
@@ -342,7 +362,7 @@ ForEach ($Computer in $Messages) #Loop through each computer
         $green = '<img src="images/checks/greenCheckMark_round.png" alt="Green Check Mark">' #Green is always the same so we can declare it here.
         $varHash = [ordered]@{} #hash table used for storing variables
         $DriverCount = 1 #Count used for cycling through driver steps
-        If ($Computer.MessageID -contains "11144" -or $Computer.MessageID -eq "11140")
+        If ($Computer.MessageID -contains "11144")
             {
                 ForEach ($statmsg in $Computer) #Loop through each status message
                 {
@@ -353,10 +373,10 @@ ForEach ($Computer in $Messages) #Loop through each computer
                     #$ImageStarted = $null
                     $LastLog = $null
                     
-                    ForEach ($step in $TSStepsNoDrivers) #Loop through each TS Step
+                    ForEach ($step in $TSSteps) #Loop through each TS Step
                         {
                             $var =  "$($VarCount)" + ' - ' + $step #This sets the variable to include a number plus the name. Just for the html page
-                            If ($Statmsg.MessageID -eq "11144" -or $Computer.MessageID -eq "11140") { $ImageStarted = $statmsg."Date / Time"} #MessageID 11144 is the start of a task sequence, 11140 is start if in OS/Software Center
+                            If ($Statmsg.MessageID -eq "11144") { $ImageStarted = $statmsg."Date / Time"} #MessageID 11144 is the start of a task sequence
                             ElseIf (($step -eq "Install Drivers") -AND ($MDM -eq $false)) #This ElseIf block is where we process our driver steps only if not using Modern Driver Management
                                 {    
                                     $RegExString = $ParRegex.match($Statmsg.Description).Groups[1].value #Gets the name of the step by looking at the value between the parenthesies.
@@ -398,7 +418,8 @@ ForEach ($Computer in $Messages) #Loop through each computer
                             ElseIf (($Statmsg.Description -like "The task sequence execution engine successfully completed the action*$($Step)*") -AND ($statmsg.Severity -eq "Informational")) 
                                 {
                                     #Processing all successful steps
-                                    $varHash.Add($var,$green) 
+                                    $text = $statmsg.Description.replace('"','&quot;') #replace quotes so the html doesn't truncate
+                                    $varHash.Add($var,'<a href=" " title="' + $text + '"><img src="images/checks/greenCheckMark_round.png" alt="Green Check Mark"></a>') 
                                     $LastLog = $statmsg."Date / Time"
                                     $ImageDuration = Get-DateDifference -StartDate $ImageStarted -EndDate $LastLog
                                 }
@@ -467,7 +488,7 @@ ForEach ($Computer in $Messages) #Loop through each computer
                             <th class="column100 column5" data-column="column5">Last Log</th>
                             <th class="column100 column6" data-column="column6">Name During Imaging</th>'
                     $column = 7 #hardcoded number. No need to change this as it is used for building the table
-                    ForEach ($item in $TSStepsNoDrivers)
+                    ForEach ($item in $TSSteps)
                         {
                             $item = "$($stepscount)" + ' - ' + $item
                             $String = '<th class="column100 column' + $Column + '" data-column="Column' + $Column + '">' + $item + '</th>'
@@ -484,6 +505,9 @@ ForEach ($Computer in $Messages) #Loop through each computer
             #Do some logic to convert our variables into date/time for the correct culture
             If ($ImageStarted)
                 {
+                    #[datetime]$date = Get-Date $ImageStarted -Format (Get-Culture).DateTimeFormat.ShortDatePattern
+                    #[datetime]$time = (Get-Date $ImageStarted -Format (Get-Culture).DateTimeFormat.LongTimePattern)
+                    #[string]$ImageStarted = [string]$date.ToShortDateString() + " " + [string]$time.ToLongTimeString()
                     $CultureDateTimeFormat = (Get-Culture).DateTimeFormat
                     $DateFormat = $CultureDateTimeFormat.ShortDatePattern
                     $TimeFormat = $CultureDateTimeFormat.LongTimePattern
@@ -492,6 +516,9 @@ ForEach ($Computer in $Messages) #Loop through each computer
                 }
             If ($ImageCompleted)
                 { 
+                    #[datetime]$date = Get-Date $ImageCompleted -Format (Get-Culture).DateTimeFormat.ShortDatePattern
+                    #[datetime]$time = (Get-Date $ImageCompleted -Format (Get-Culture).DateTimeFormat.LongTimePattern)
+                    #[string]$ImageCompleted = [string]$date.ToShortDateString() + " " + [string]$time.ToLongTimeString()
                     $CultureDateTimeFormat = (Get-Culture).DateTimeFormat
                     $DateFormat = $CultureDateTimeFormat.ShortDatePattern
                     $TimeFormat = $CultureDateTimeFormat.LongTimePattern
@@ -500,6 +527,9 @@ ForEach ($Computer in $Messages) #Loop through each computer
                 }
             If ($LastLog)
                 {
+                    #[datetime]$date = Get-Date $LastLog -Format (Get-Culture).DateTimeFormat.ShortDatePattern
+                    #[datetime]$time = (Get-Date $LastLog -Format (Get-Culture).DateTimeFormat.LongTimePattern)
+                    #[string]$LastLog = [string]$date.ToShortDateString() + " " + [string]$time.ToLongTimeString()
                     $CultureDateTimeFormat = (Get-Culture).DateTimeFormat
                     $DateFormat = $CultureDateTimeFormat.ShortDatePattern
                     $TimeFormat = $CultureDateTimeFormat.LongTimePattern
@@ -535,7 +565,7 @@ ForEach ($Computer in $Messages) #Loop through each computer
 #These if statements will process if we had an issue or if no devices were found to be imaging.
 If (($html.count -eq 0) -and ($messages.Name.Count -ge 1)) 
     {
-        $html += "<h2 style='text-align: center;'><strong>At least one device was detected as starting the Task Sequence but there is an issue sorting the steps.</strong></h2>"
+        $html += "<h2 style='text-align: center;'><strong>At least one device was detected as staring the Task Sequence but there is an issue sorting the steps.</strong></h2>"
     }
 elseif (($html.count -eq 0) -and ($messages.Name.Count -eq 0)) 
     {
